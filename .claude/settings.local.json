@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__claude_ai_Figma__get_metadata",
+      "Bash(python3 -c ' *)",
+      "Bash(node -e ' *)",
+      "Bash(./gradlew :app:assembleDebug -q)",
+      "Bash(./gradlew :app:assembleDebug)",
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(./gradlew :app:testDebugUnitTest -q)",
+      "Bash(adb shell *)",
+      "Bash(adb exec-out *)",
+      "Bash(MSYS_NO_PATHCONV=1 adb shell uiautomator dump /sdcard/ui.xml)",
+      "Bash(MSYS_NO_PATHCONV=1 adb pull /sdcard/ui.xml \"C:/Users/seddi/AppData/Local/Temp/claude/C--Developer-SmartEvents/87674130-495b-4ca4-abbf-0fcaa36c6f55/scratchpad/ui.xml\")"
+    ]
+  }
+}
