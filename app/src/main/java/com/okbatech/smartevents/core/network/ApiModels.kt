@@ -59,6 +59,9 @@ data class RegisterRequest(val name: String, val email: String, val password: St
 data class LoginRequest(val email: String, val password: String)
 
 @Serializable
+data class GoogleAuthRequest(val idToken: String)
+
+@Serializable
 data class UpdateProfileRequest(
     val name: String? = null,
     val phone: String? = null,

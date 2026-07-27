@@ -6,12 +6,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -43,8 +46,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.okbatech.smartevents.core.designsystem.components.AvatarStack
+import com.okbatech.smartevents.core.designsystem.components.EmptyState
+import com.okbatech.smartevents.core.designsystem.components.ErrorState
 import com.okbatech.smartevents.core.designsystem.components.EvenroButton
 import com.okbatech.smartevents.core.designsystem.components.IconCircleButton
+import com.okbatech.smartevents.core.designsystem.components.LoadingState
 import com.okbatech.smartevents.feature.events.domain.model.EventDetail
 import com.okbatech.smartevents.feature.social.domain.model.ChatThreads
 import com.okbatech.smartevents.ui.theme.EvenroTheme
@@ -96,6 +102,7 @@ private fun EventDetailsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -117,7 +124,16 @@ private fun EventDetailsScreen(
             }
         },
     ) { padding ->
-        if (event == null) return@Scaffold
+        if (event == null) {
+            Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                when {
+                    uiState.isLoading -> LoadingState()
+                    uiState.errorMessage != null -> ErrorState(message = uiState.errorMessage, onRetry = { onEvent(EventDetailsEvent.Retry) })
+                    else -> EmptyState(title = "Event not found", message = "This event may have been removed.")
+                }
+            }
+            return@Scaffold
+        }
 
         Column(
             modifier = Modifier

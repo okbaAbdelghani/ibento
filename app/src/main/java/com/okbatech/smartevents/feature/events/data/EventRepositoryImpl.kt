@@ -6,11 +6,14 @@ import com.okbatech.smartevents.core.network.EventInputRequest
 import com.okbatech.smartevents.core.network.safeApiCall
 import com.okbatech.smartevents.feature.events.domain.model.EventDetail
 import com.okbatech.smartevents.feature.events.domain.model.EventSummary
+import com.okbatech.smartevents.feature.events.domain.model.EventsLoadState
 import com.okbatech.smartevents.feature.events.domain.repository.EventRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 
 /**
@@ -24,6 +27,7 @@ class EventRepositoryImpl @Inject constructor(
 ) : EventRepository {
 
     private val eventsCache = MutableStateFlow<List<EventDto>>(emptyList())
+    private val loadState = MutableStateFlow(EventsLoadState())
     private var hasFetched = false
 
     private suspend fun ensureFetched() {
@@ -31,9 +35,19 @@ class EventRepositoryImpl @Inject constructor(
     }
 
     private suspend fun refresh() {
-        eventsCache.value = runCatching { api.listEvents() }.getOrDefault(eventsCache.value)
+        loadState.update { it.copy(isLoading = true, errorMessage = null) }
+        val result = safeApiCall { api.listEvents() }
         hasFetched = true
+        result.onSuccess { eventsCache.value = it }
+        loadState.value = EventsLoadState(
+            isLoading = false,
+            errorMessage = result.exceptionOrNull()?.message,
+        )
     }
+
+    override suspend fun refreshEvents() = refresh()
+
+    override fun observeEventsLoadState(): Flow<EventsLoadState> = loadState.asStateFlow()
 
     override fun observeFeaturedEvents(): Flow<List<EventSummary>> =
         eventsCache.onStart { ensureFetched() }.map { list -> list.filter { it.isFeatured }.map { it.toSummary() } }

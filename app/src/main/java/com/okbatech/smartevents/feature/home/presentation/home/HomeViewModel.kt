@@ -37,6 +37,8 @@ data class HomeUiState(
     val favoriteEventIds: Set<String> = emptySet(),
     val justJoinedEventId: String? = null,
     val showAddEventTooltip: Boolean = false,
+    val isLoadingEvents: Boolean = false,
+    val eventsErrorMessage: String? = null,
 )
 
 sealed interface HomeEvent {
@@ -45,6 +47,7 @@ sealed interface HomeEvent {
     data class ToggleFavorite(val eventId: String) : HomeEvent
     data class JoinEvent(val eventId: String) : HomeEvent
     data object DismissAddEventTooltip : HomeEvent
+    data object RetryLoadEvents : HomeEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -93,6 +96,10 @@ class HomeViewModel @Inject constructor(
         preferences.hasSeenAddEventTooltip.onEach { seen ->
             _uiState.update { it.copy(showAddEventTooltip = !seen) }
         }.launchIn(viewModelScope)
+
+        eventRepository.observeEventsLoadState().onEach { load ->
+            _uiState.update { it.copy(isLoadingEvents = load.isLoading, eventsErrorMessage = load.errorMessage) }
+        }.launchIn(viewModelScope)
     }
 
     fun onEvent(event: HomeEvent) {
@@ -102,6 +109,7 @@ class HomeViewModel @Inject constructor(
             is HomeEvent.ToggleFavorite -> toggleFavorite(event.eventId)
             is HomeEvent.JoinEvent -> join(event.eventId)
             HomeEvent.DismissAddEventTooltip -> viewModelScope.launch { preferences.markAddEventTooltipSeen() }
+            HomeEvent.RetryLoadEvents -> viewModelScope.launch { eventRepository.refreshEvents() }
         }
     }
 

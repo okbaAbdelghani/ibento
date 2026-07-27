@@ -2,6 +2,7 @@ package com.okbatech.smartevents.feature.auth.data
 
 import com.okbatech.smartevents.core.datastore.EvenroPreferences
 import com.okbatech.smartevents.core.network.ApiService
+import com.okbatech.smartevents.core.network.GoogleAuthRequest
 import com.okbatech.smartevents.core.network.LoginRequest
 import com.okbatech.smartevents.core.network.RegisterRequest
 import com.okbatech.smartevents.core.network.UpdateProfileRequest
@@ -57,6 +58,11 @@ class AuthRepositoryImpl @Inject constructor(
     override suspend fun signIn(email: String, password: String, rememberMe: Boolean): Result<User> =
         safeApiCall { api.login(LoginRequest(email, password)) }
             .onSuccess { response -> preferences.setSession(response.user.id, response.token, rememberMe) }
+            .map { it.user.toDomain() }
+
+    override suspend fun signInWithGoogle(idToken: String): Result<User> =
+        safeApiCall { api.loginWithGoogle(GoogleAuthRequest(idToken)) }
+            .onSuccess { response -> preferences.setSession(response.user.id, response.token) }
             .map { it.user.toDomain() }
 
     override suspend fun verifyOtp(code: String): Result<Unit> {

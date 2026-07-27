@@ -3,6 +3,7 @@ package com.okbatech.smartevents.feature.auth.presentation.signin
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.okbatech.smartevents.feature.auth.domain.usecase.SignInUseCase
+import com.okbatech.smartevents.feature.auth.domain.usecase.SignInWithGoogleUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,11 +28,14 @@ sealed interface SignInEvent {
     data object ToggleRememberMe : SignInEvent
     data object TogglePasswordVisibility : SignInEvent
     data object Submit : SignInEvent
+    data class GoogleIdTokenReceived(val idToken: String) : SignInEvent
+    data class GoogleSignInFailed(val message: String) : SignInEvent
 }
 
 @HiltViewModel
 class SignInViewModel @Inject constructor(
     private val signIn: SignInUseCase,
+    private val signInWithGoogle: SignInWithGoogleUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SignInUiState())
@@ -44,6 +48,8 @@ class SignInViewModel @Inject constructor(
             SignInEvent.ToggleRememberMe -> _uiState.update { it.copy(rememberMe = !it.rememberMe) }
             SignInEvent.TogglePasswordVisibility -> _uiState.update { it.copy(isPasswordVisible = !it.isPasswordVisible) }
             SignInEvent.Submit -> submit()
+            is SignInEvent.GoogleIdTokenReceived -> submitGoogle(event.idToken)
+            is SignInEvent.GoogleSignInFailed -> _uiState.update { it.copy(errorMessage = event.message) }
         }
     }
 
@@ -55,6 +61,17 @@ class SignInViewModel @Inject constructor(
                 .onSuccess { _uiState.update { it.copy(isLoading = false, signedIn = true) } }
                 .onFailure { error ->
                     _uiState.update { it.copy(isLoading = false, errorMessage = error.message ?: "Sign in failed") }
+                }
+        }
+    }
+
+    private fun submitGoogle(idToken: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            signInWithGoogle(idToken)
+                .onSuccess { _uiState.update { it.copy(isLoading = false, signedIn = true) } }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isLoading = false, errorMessage = error.message ?: "Google sign-in failed") }
                 }
         }
     }

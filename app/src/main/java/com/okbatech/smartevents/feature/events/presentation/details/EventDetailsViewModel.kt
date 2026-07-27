@@ -9,6 +9,7 @@ import com.okbatech.smartevents.feature.auth.domain.model.User
 import com.okbatech.smartevents.feature.auth.domain.usecase.ObserveCurrentUserUseCase
 import com.okbatech.smartevents.feature.auth.domain.usecase.ObserveUserByIdUseCase
 import com.okbatech.smartevents.feature.events.domain.model.EventDetail
+import com.okbatech.smartevents.feature.events.domain.repository.EventRepository
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveEventDetailUseCase
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveWishlistedEventIdsUseCase
 import com.okbatech.smartevents.feature.events.domain.usecase.ToggleWishlistUseCase
@@ -31,11 +32,14 @@ data class EventDetailsUiState(
     val organizer: User? = null,
     val isFavorite: Boolean = false,
     val isDescriptionExpanded: Boolean = false,
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
 )
 
 sealed interface EventDetailsEvent {
     data object ToggleFavorite : EventDetailsEvent
     data object ToggleDescription : EventDetailsEvent
+    data object Retry : EventDetailsEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -47,6 +51,7 @@ class EventDetailsViewModel @Inject constructor(
     observeUserById: ObserveUserByIdUseCase,
     observeWishlistedEventIds: ObserveWishlistedEventIdsUseCase,
     private val toggleWishlist: ToggleWishlistUseCase,
+    private val eventRepository: EventRepository,
 ) : ViewModel() {
 
     val eventId: String = savedStateHandle.toRoute<EvenroRoute.EventDetails>().eventId
@@ -70,6 +75,10 @@ class EventDetailsViewModel @Inject constructor(
             .flatMapLatest { user -> observeWishlistedEventIds(user.id) }
             .onEach { ids -> _uiState.update { it.copy(isFavorite = eventId in ids) } }
             .launchIn(viewModelScope)
+
+        eventRepository.observeEventsLoadState()
+            .onEach { load -> _uiState.update { it.copy(isLoading = load.isLoading, errorMessage = load.errorMessage) } }
+            .launchIn(viewModelScope)
     }
 
     fun onEvent(event: EventDetailsEvent) {
@@ -79,6 +88,7 @@ class EventDetailsViewModel @Inject constructor(
                 viewModelScope.launch { toggleWishlist(userId, eventId) }
             }
             EventDetailsEvent.ToggleDescription -> _uiState.update { it.copy(isDescriptionExpanded = !it.isDescriptionExpanded) }
+            EventDetailsEvent.Retry -> viewModelScope.launch { eventRepository.refreshEvents() }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.okbatech.smartevents.feature.events.domain.repository
 
 import com.okbatech.smartevents.feature.events.domain.model.EventDetail
 import com.okbatech.smartevents.feature.events.domain.model.EventSummary
+import com.okbatech.smartevents.feature.events.domain.model.EventsLoadState
 import kotlinx.coroutines.flow.Flow
 
 interface EventRepository {
@@ -9,6 +10,10 @@ interface EventRepository {
     fun observeAllEvents(): Flow<List<EventSummary>>
     fun observeEventDetail(eventId: String): Flow<EventDetail?>
     fun observeEventsByOrganizer(organizerId: String): Flow<List<EventSummary>>
+    fun observeEventsLoadState(): Flow<EventsLoadState>
+
+    /** Re-fetches events from the backend, e.g. after a failed load or a pull-to-refresh. */
+    suspend fun refreshEvents()
 
     suspend fun createEvent(
         title: String,

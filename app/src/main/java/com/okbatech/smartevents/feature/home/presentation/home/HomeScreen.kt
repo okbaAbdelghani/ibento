@@ -39,10 +39,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.okbatech.smartevents.core.designsystem.components.CategoryChip
+import com.okbatech.smartevents.core.designsystem.components.EmptyState
+import com.okbatech.smartevents.core.designsystem.components.ErrorState
 import com.okbatech.smartevents.core.designsystem.components.EventCard
 import com.okbatech.smartevents.core.designsystem.components.EvenroBottomNavBar
 import com.okbatech.smartevents.core.designsystem.components.EvenroNavDestination
 import com.okbatech.smartevents.core.designsystem.components.EvenroSearchBar
+import com.okbatech.smartevents.core.designsystem.components.LoadingState
 import com.okbatech.smartevents.core.designsystem.components.SectionHeader
 import com.okbatech.smartevents.feature.events.domain.model.EventSummary
 import com.okbatech.smartevents.ui.theme.EvenroTheme
@@ -187,13 +190,73 @@ private fun HomeScreen(
                 )
             }
 
-            item {
-                SectionHeader(title = "Popular Events 🔥", onViewAllClick = onOpenSeeAll)
-            }
+            val noEventsYet = uiState.featuredEvents.isEmpty() && uiState.categoryEvents.isEmpty()
 
-            item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(uiState.featuredEvents, key = { it.id }) { event ->
+            if (uiState.isLoadingEvents && noEventsYet) {
+                item { LoadingState(modifier = Modifier.fillMaxWidth()) }
+            } else if (uiState.eventsErrorMessage != null && noEventsYet) {
+                item {
+                    ErrorState(
+                        message = uiState.eventsErrorMessage,
+                        onRetry = { onEvent(HomeEvent.RetryLoadEvents) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            } else {
+                item {
+                    SectionHeader(title = "Popular Events 🔥", onViewAllClick = onOpenSeeAll)
+                }
+
+                item {
+                    if (uiState.featuredEvents.isEmpty()) {
+                        EmptyState(title = "No featured events yet", modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            items(uiState.featuredEvents, key = { it.id }) { event ->
+                                EventCard(
+                                    imageUrl = event.imageUrl,
+                                    title = event.title,
+                                    dateLabel = formatEventDate(event.startDateTime),
+                                    locationLabel = "${event.venueName}, ${event.city}",
+                                    attendeeAvatarUrls = emptyList(),
+                                    isFavorite = event.id in uiState.favoriteEventIds,
+                                    onFavoriteClick = { onEvent(HomeEvent.ToggleFavorite(event.id)) },
+                                    onClick = { onOpenEventDetails(event.id) },
+                                    priceLabel = "$${event.priceAmount.toInt()} USD",
+                                    onActionClick = { onEvent(HomeEvent.JoinEvent(event.id)) },
+                                    modifier = Modifier.width(260.dp),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    SectionHeader(title = "Choose By Category ✨")
+                }
+
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        HomeCategories.forEach { category ->
+                            CategoryChip(
+                                label = category,
+                                selected = category == uiState.selectedCategory,
+                                onClick = { onEvent(HomeEvent.CategorySelected(category)) },
+                            )
+                        }
+                    }
+                }
+
+                if (uiState.categoryEvents.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "No events in ${uiState.selectedCategory}",
+                            message = "Try a different category.",
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                } else {
+                    items(uiState.categoryEvents, key = { it.id }) { event ->
                         EventCard(
                             imageUrl = event.imageUrl,
                             title = event.title,
@@ -204,43 +267,11 @@ private fun HomeScreen(
                             onFavoriteClick = { onEvent(HomeEvent.ToggleFavorite(event.id)) },
                             onClick = { onOpenEventDetails(event.id) },
                             priceLabel = "$${event.priceAmount.toInt()} USD",
-                            onActionClick = { onEvent(HomeEvent.JoinEvent(event.id)) },
-                            modifier = Modifier.width(260.dp),
+                            onActionClick = { onOpenEventDetails(event.id) },
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
                 }
-            }
-
-            item {
-                SectionHeader(title = "Choose By Category ✨")
-            }
-
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    HomeCategories.forEach { category ->
-                        CategoryChip(
-                            label = category,
-                            selected = category == uiState.selectedCategory,
-                            onClick = { onEvent(HomeEvent.CategorySelected(category)) },
-                        )
-                    }
-                }
-            }
-
-            items(uiState.categoryEvents, key = { it.id }) { event ->
-                EventCard(
-                    imageUrl = event.imageUrl,
-                    title = event.title,
-                    dateLabel = formatEventDate(event.startDateTime),
-                    locationLabel = "${event.venueName}, ${event.city}",
-                    attendeeAvatarUrls = emptyList(),
-                    isFavorite = event.id in uiState.favoriteEventIds,
-                    onFavoriteClick = { onEvent(HomeEvent.ToggleFavorite(event.id)) },
-                    onClick = { onOpenEventDetails(event.id) },
-                    priceLabel = "$${event.priceAmount.toInt()} USD",
-                    onActionClick = { onOpenEventDetails(event.id) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
     }

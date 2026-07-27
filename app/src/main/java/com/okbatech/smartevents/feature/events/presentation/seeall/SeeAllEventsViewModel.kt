@@ -25,18 +25,21 @@ data class SeeAllEventsUiState(
     val userId: String? = null,
     val events: List<EventSummary> = emptyList(),
     val favoriteEventIds: Set<String> = emptySet(),
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null,
 )
 
 sealed interface SeeAllEventsEvent {
     data class ToggleFavorite(val eventId: String) : SeeAllEventsEvent
     data class Join(val eventId: String) : SeeAllEventsEvent
+    data object Retry : SeeAllEventsEvent
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class SeeAllEventsViewModel @Inject constructor(
     observeCurrentUser: ObserveCurrentUserUseCase,
-    eventRepository: EventRepository,
+    private val eventRepository: EventRepository,
     private val toggleWishlist: ToggleWishlistUseCase,
     observeWishlistedEventIds: ObserveWishlistedEventIdsUseCase,
     private val joinEvent: JoinEventUseCase,
@@ -57,6 +60,10 @@ class SeeAllEventsViewModel @Inject constructor(
         eventRepository.observeAllEvents()
             .onEach { events -> _uiState.update { it.copy(events = events) } }
             .launchIn(viewModelScope)
+
+        eventRepository.observeEventsLoadState()
+            .onEach { load -> _uiState.update { it.copy(isLoading = load.isLoading, errorMessage = load.errorMessage) } }
+            .launchIn(viewModelScope)
     }
 
     fun onEvent(event: SeeAllEventsEvent) {
@@ -69,6 +76,7 @@ class SeeAllEventsViewModel @Inject constructor(
                 val userId = _uiState.value.userId ?: return
                 viewModelScope.launch { joinEvent(userId, event.eventId) }
             }
+            SeeAllEventsEvent.Retry -> viewModelScope.launch { eventRepository.refreshEvents() }
         }
     }
 }

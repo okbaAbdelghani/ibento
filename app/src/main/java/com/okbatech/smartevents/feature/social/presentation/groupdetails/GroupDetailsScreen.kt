@@ -2,11 +2,14 @@ package com.okbatech.smartevents.feature.social.presentation.groupdetails
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -59,7 +62,7 @@ private fun GroupDetailsScreen(
     Scaffold(
         bottomBar = {
             if (event != null) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp)) {
                     EvenroButton(
                         text = "OPEN GROUP CHAT",
                         onClick = onOpenGroupChat,

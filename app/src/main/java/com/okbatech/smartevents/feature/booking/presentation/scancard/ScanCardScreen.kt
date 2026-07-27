@@ -3,10 +3,13 @@ package com.okbatech.smartevents.feature.booking.presentation.scancard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CreditCard
@@ -49,7 +52,7 @@ private fun ScanCardScreen(onCardScanned: (String) -> Unit) {
                 text = "USE THIS CARD",
                 onClick = { onCardScanned(manualNumber) },
                 enabled = manualNumber.length >= 12,
-                modifier = Modifier.fillMaxWidth().padding(16.dp).height(52.dp),
+                modifier = Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.navigationBars).padding(16.dp).height(52.dp),
             )
         },
     ) { padding ->

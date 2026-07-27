@@ -14,11 +14,14 @@ import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import javax.inject.Singleton
 
+private const val BASE_URL = "https://evenro.duckdns.org/api/"
+
 /**
- * `10.0.2.2` is the Android emulator's alias for the host machine's loopback interface —
- * `localhost` from inside the AVD would resolve to the emulator itself, not the dev backend.
+ * The Web application OAuth client ID from Google Cloud Console — used as the
+ * `serverClientId` for Credential Manager's Google Sign-In, and verified as the token
+ * audience by the backend. Not a secret (only the client *secret* would be); safe to embed.
  */
-private const val BASE_URL = "http://10.0.2.2:4000/api/"
+const val GOOGLE_WEB_CLIENT_ID = "233044500861-o3bc1juumh7df7vbgsip6lvjl59c9l0q.apps.googleusercontent.com"
 
 @Module
 @InstallIn(SingletonComponent::class)
