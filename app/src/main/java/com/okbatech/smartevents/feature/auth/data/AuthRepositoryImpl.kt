@@ -11,10 +11,13 @@ import com.okbatech.smartevents.core.network.safeApiCall
 import com.okbatech.smartevents.feature.auth.domain.model.User
 import com.okbatech.smartevents.feature.auth.domain.repository.AuthRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.retryWhen
 import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -27,7 +30,15 @@ class AuthRepositoryImpl @Inject constructor(
         if (id == null) {
             flowOf(null)
         } else {
-            flow { emit(runCatching { api.me() }.getOrNull()?.toDomain()) }
+            // api.me() is a single network round trip on the same real mobile connection chat
+            // delivery depends on (Wi-Fi/cellular handoff, brief drops) — a bare one-shot call
+            // here used to leave currentUserId null for the rest of the screen's lifetime on
+            // any transient failure, silently breaking both message send (which no-ops without
+            // a user id) and sent/received bubble alignment. Retry a few times with backoff
+            // before giving up.
+            flow<User?> { emit(api.me().toDomain()) }
+                .retryWhen { _, attempt -> (attempt < 3).also { if (it) delay(500L * (attempt + 1)) } }
+                .catch { emit(null) }
         }
     }
 

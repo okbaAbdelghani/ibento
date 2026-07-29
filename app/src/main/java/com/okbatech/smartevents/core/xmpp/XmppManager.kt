@@ -145,15 +145,21 @@ class XmppManager @Inject constructor(
     private fun persistIncoming(threadId: String, senderId: String, body: String, stanzaId: String?) {
         Log.d(TAG, "incoming into $threadId from $senderId: $body")
         dbScope.launch {
-            messageDao.insert(
-                MessageEntity(
-                    id = "m-${stanzaId ?: UUID.randomUUID()}",
-                    threadId = threadId,
-                    senderId = senderId,
-                    body = body,
-                    sentAt = System.currentTimeMillis(),
-                ),
-            )
+            runCatching {
+                messageDao.insert(
+                    MessageEntity(
+                        id = "m-${stanzaId ?: UUID.randomUUID()}",
+                        threadId = threadId,
+                        senderId = senderId,
+                        body = body,
+                        sentAt = System.currentTimeMillis(),
+                    ),
+                )
+            }.onSuccess {
+                Log.d(TAG, "persisted OK into $threadId")
+            }.onFailure {
+                Log.e(TAG, "persist FAILED into $threadId", it)
+            }
         }
     }
 }

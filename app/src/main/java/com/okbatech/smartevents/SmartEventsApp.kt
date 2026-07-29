@@ -18,6 +18,7 @@ class SmartEventsApp : Application() {
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+
     override fun onCreate() {
         super.onCreate()
         applicationScope.launch { databaseSeeder.seedIfNeeded() }
