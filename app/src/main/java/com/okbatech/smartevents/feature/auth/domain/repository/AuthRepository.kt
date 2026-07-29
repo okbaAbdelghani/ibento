@@ -17,6 +17,7 @@ interface AuthRepository {
     suspend fun signUp(name: String, email: String, password: String): Result<User>
     suspend fun signIn(email: String, password: String, rememberMe: Boolean): Result<User>
     suspend fun signInWithGoogle(idToken: String): Result<User>
+    suspend fun signInWithFacebook(accessToken: String): Result<User>
 
     /** Mock verification — there's no real SMS/email provider behind this build. */
     suspend fun verifyOtp(code: String): Result<Unit>

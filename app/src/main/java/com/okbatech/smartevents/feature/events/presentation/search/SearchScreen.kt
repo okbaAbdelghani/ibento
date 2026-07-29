@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.okbatech.smartevents.core.designsystem.components.CategoryChip
 import com.okbatech.smartevents.core.designsystem.components.EventListRow
 import com.okbatech.smartevents.core.designsystem.components.EvenroSearchBar
+import com.okbatech.smartevents.feature.events.presentation.filter.AllCategory
 import com.okbatech.smartevents.ui.theme.EvenroTheme
 import com.okbatech.smartevents.ui.theme.SmartEventsTheme
 import com.okbatech.smartevents.util.formatEventDate
@@ -87,10 +88,10 @@ private fun SearchScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.padding(bottom = 12.dp),
             ) {
-                SearchCategories.forEach { category ->
+                (listOf(AllCategory) + SearchCategories).forEach { category ->
                     CategoryChip(
                         label = category,
-                        selected = category in uiState.filter.categories,
+                        selected = category == uiState.filter.category,
                         onClick = { onEvent(SearchEvent.CategoryToggled(category)) },
                     )
                 }

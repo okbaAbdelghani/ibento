@@ -30,6 +30,7 @@ import com.okbatech.smartevents.feature.events.presentation.calendar.CalendarOpe
 import com.okbatech.smartevents.feature.events.presentation.calendar.CalendarRoute
 import com.okbatech.smartevents.feature.events.presentation.details.EventDetailsRoute
 import com.okbatech.smartevents.feature.events.presentation.eventform.EventFormRoute
+import com.okbatech.smartevents.feature.events.presentation.filter.CurrentFilterKey
 import com.okbatech.smartevents.feature.events.presentation.filter.FilterCriteria
 import com.okbatech.smartevents.feature.events.presentation.filter.FilterResultKey
 import com.okbatech.smartevents.feature.events.presentation.filter.FilterRoute
@@ -40,7 +41,9 @@ import com.okbatech.smartevents.feature.events.presentation.search.SearchRoute
 import com.okbatech.smartevents.feature.events.presentation.search.SearchViewModel
 import com.okbatech.smartevents.feature.events.presentation.seeall.SeeAllEventsRoute
 import com.okbatech.smartevents.feature.events.presentation.wishlist.WishlistRoute
+import com.okbatech.smartevents.feature.home.presentation.home.HomeEvent
 import com.okbatech.smartevents.feature.home.presentation.home.HomeRoute
+import com.okbatech.smartevents.feature.home.presentation.home.HomeViewModel
 import com.okbatech.smartevents.feature.map.presentation.locationpicker.LocationPickerRoute
 import com.okbatech.smartevents.feature.map.presentation.mapview.MapViewRoute
 import com.okbatech.smartevents.feature.onboarding.presentation.country.CountrySelectionRoute
@@ -158,11 +161,23 @@ fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
         }
 
         // ---- Home & discovery ----
-        composable<EvenroRoute.Home> {
+        composable<EvenroRoute.Home> { backStackEntry ->
+            val viewModel: HomeViewModel = hiltViewModel(backStackEntry)
+            val filterResult = backStackEntry.savedStateHandle.get<FilterCriteria>(FilterResultKey)
+            LaunchedEffect(filterResult) {
+                if (filterResult != null) {
+                    viewModel.onEvent(HomeEvent.FilterApplied(filterResult))
+                    backStackEntry.savedStateHandle.remove<FilterCriteria>(FilterResultKey)
+                }
+            }
             HomeRoute(
+                viewModel = viewModel,
                 onOpenEventDetails = { eventId -> navController.navigate(EvenroRoute.EventDetails(eventId)) },
                 onOpenSearch = { navController.navigate(EvenroRoute.SearchWhiteBar) },
-                onOpenFilter = { navController.navigate(EvenroRoute.Filter) },
+                onOpenFilter = {
+                    backStackEntry.savedStateHandle[CurrentFilterKey] = viewModel.uiState.value.filter
+                    navController.navigate(EvenroRoute.Filter)
+                },
                 onOpenSeeAll = { navController.navigate(EvenroRoute.SeeAllEvents) },
                 onOpenLocationPicker = { navController.navigate(EvenroRoute.LocationPicker) },
                 onOpenAddEvent = { navController.navigate(EvenroRoute.AddEvent) },
@@ -205,22 +220,38 @@ fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
             SearchRoute(
                 onBack = navController::popBackStack,
                 onOpenEventDetails = { eventId -> navController.navigate(EvenroRoute.EventDetails(eventId)) },
-                onOpenFilter = { navController.navigate(EvenroRoute.Filter) },
+                onOpenFilter = {
+                    backStackEntry.savedStateHandle[CurrentFilterKey] = viewModel.uiState.value.filter
+                    navController.navigate(EvenroRoute.Filter)
+                },
                 viewModel = viewModel,
             )
         }
         composable<EvenroRoute.SearchColorBar> { backStackEntry ->
             val viewModel: SearchViewModel = hiltViewModel(backStackEntry)
+            val filterResult = backStackEntry.savedStateHandle.get<FilterCriteria>(FilterResultKey)
+            LaunchedEffect(filterResult) {
+                if (filterResult != null) {
+                    viewModel.onEvent(SearchEvent.FilterApplied(filterResult))
+                    backStackEntry.savedStateHandle.remove<FilterCriteria>(FilterResultKey)
+                }
+            }
             SearchRoute(
                 onBack = navController::popBackStack,
                 onOpenEventDetails = { eventId -> navController.navigate(EvenroRoute.EventDetails(eventId)) },
-                onOpenFilter = { navController.navigate(EvenroRoute.Filter) },
+                onOpenFilter = {
+                    backStackEntry.savedStateHandle[CurrentFilterKey] = viewModel.uiState.value.filter
+                    navController.navigate(EvenroRoute.Filter)
+                },
                 viewModel = viewModel,
             )
         }
         composable<EvenroRoute.Filter> {
             FilterRoute(
-                initialCriteria = FilterCriteria(),
+                initialCriteria = navController.previousBackStackEntry
+                    ?.savedStateHandle
+                    ?.get<FilterCriteria>(CurrentFilterKey)
+                    ?: FilterCriteria(),
                 onBack = navController::popBackStack,
                 onApply = { criteria ->
                     navController.previousBackStackEntry?.savedStateHandle?.set(FilterResultKey, criteria)

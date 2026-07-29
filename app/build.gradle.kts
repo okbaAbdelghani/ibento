@@ -90,6 +90,17 @@ dependencies {
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play.services.auth)
     implementation(libs.googleid)
+    implementation(libs.facebook.login)
+
+    implementation(libs.smack.android) {
+        // smack-xmlparser-xpp3 pulls in both xpp3:xpp3 (full) and xpp3:xpp3_min, which
+        // contain duplicate classes (org.xmlpull.v1.XmlPullParser etc.) — keep only the
+        // minimal one, which is all Smack actually needs.
+        exclude(group = "xpp3", module = "xpp3")
+    }
+    implementation(libs.smack.tcp)
+    implementation(libs.smack.im)
+    implementation(libs.smack.extensions)
 
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
 

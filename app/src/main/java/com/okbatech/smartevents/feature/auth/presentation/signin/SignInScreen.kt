@@ -25,10 +25,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,6 +48,11 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.facebook.CallbackManager
+import com.facebook.FacebookCallback
+import com.facebook.FacebookException
+import com.facebook.login.LoginManager
+import com.facebook.login.LoginResult
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.okbatech.smartevents.core.designsystem.components.EvenroButton
@@ -100,6 +109,31 @@ private fun SignInScreen(
                 onEvent(SignInEvent.GoogleSignInFailed(e.message ?: "Google sign-in was cancelled."))
             }
         }
+    }
+
+    val callbackManager = remember { CallbackManager.Factory.create() }
+    val currentOnEvent = rememberUpdatedState(onEvent)
+
+    DisposableEffect(callbackManager) {
+        val callback = object : FacebookCallback<LoginResult> {
+            override fun onSuccess(result: LoginResult) {
+                currentOnEvent.value(SignInEvent.FacebookAccessTokenReceived(result.accessToken.token))
+            }
+
+            override fun onCancel() {
+                currentOnEvent.value(SignInEvent.FacebookSignInFailed("Facebook sign-in was cancelled."))
+            }
+
+            override fun onError(error: FacebookException) {
+                currentOnEvent.value(SignInEvent.FacebookSignInFailed(error.message ?: "Facebook sign-in failed."))
+            }
+        }
+        LoginManager.getInstance().registerCallback(callbackManager, callback)
+        onDispose { LoginManager.getInstance().unregisterCallback(callbackManager) }
+    }
+
+    fun signInWithFacebook() {
+        LoginManager.getInstance().logIn(context as ComponentActivity, callbackManager, listOf("email", "public_profile"))
     }
 
     Scaffold { padding ->
@@ -222,7 +256,7 @@ private fun SignInScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
             ) {
-                SocialCircle(label = "f", background = Color(0xFF1877F2))
+                SocialCircle(label = "f", background = Color(0xFF1877F2), onClick = ::signInWithFacebook)
                 SocialCircle(label = "G", background = Color.White, textColor = Color(0xFFEA4335), onClick = ::signInWithGoogle)
                 SocialCircle(label = "", background = Color.Black)
             }

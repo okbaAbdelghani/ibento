@@ -8,6 +8,9 @@ import com.okbatech.smartevents.feature.booking.domain.usecase.JoinEventUseCase
 import com.okbatech.smartevents.feature.events.domain.model.EventSummary
 import com.okbatech.smartevents.feature.events.domain.repository.EventRepository
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveWishlistedEventIdsUseCase
+import com.okbatech.smartevents.feature.events.presentation.filter.AllCategory
+import com.okbatech.smartevents.feature.events.presentation.filter.FilterCriteria
+import com.okbatech.smartevents.feature.events.presentation.search.SearchCategories
 import com.okbatech.smartevents.feature.events.domain.usecase.ToggleWishlistUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,7 +26,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-val HomeCategories = listOf("Design", "Art", "Sports", "Music")
+val HomeCategories = listOf(AllCategory) + SearchCategories
 
 data class HomeUiState(
     val userId: String? = null,
@@ -31,7 +34,7 @@ data class HomeUiState(
     val userAvatarUrl: String? = null,
     val currentCity: String = "",
     val searchQuery: String = "",
-    val selectedCategory: String = HomeCategories.first(),
+    val filter: FilterCriteria = FilterCriteria(),
     val featuredEvents: List<EventSummary> = emptyList(),
     val categoryEvents: List<EventSummary> = emptyList(),
     val favoriteEventIds: Set<String> = emptySet(),
@@ -46,6 +49,7 @@ sealed interface HomeEvent {
     data class CategorySelected(val value: String) : HomeEvent
     data class ToggleFavorite(val eventId: String) : HomeEvent
     data class JoinEvent(val eventId: String) : HomeEvent
+    data class FilterApplied(val criteria: FilterCriteria) : HomeEvent
     data object DismissAddEventTooltip : HomeEvent
     data object RetryLoadEvents : HomeEvent
 }
@@ -87,9 +91,14 @@ class HomeViewModel @Inject constructor(
             _uiState.update { it.copy(featuredEvents = events) }
         }.launchIn(viewModelScope)
 
-        combine(eventRepository.observeAllEvents(), _uiState) { events, state -> events to state.selectedCategory }
-            .onEach { (events, category) ->
-                _uiState.update { it.copy(categoryEvents = events.filter { e -> e.category == category }) }
+        combine(eventRepository.observeAllEvents(), _uiState) { events, state -> events to state }
+            .onEach { (events, state) ->
+                val filtered = events.filter { e ->
+                    (state.filter.category == AllCategory || e.category == state.filter.category) &&
+                        e.priceAmount >= state.filter.minPrice &&
+                        e.priceAmount <= state.filter.maxPrice
+                }
+                _uiState.update { it.copy(categoryEvents = filtered) }
             }
             .launchIn(viewModelScope)
 
@@ -105,9 +114,10 @@ class HomeViewModel @Inject constructor(
     fun onEvent(event: HomeEvent) {
         when (event) {
             is HomeEvent.SearchQueryChanged -> _uiState.update { it.copy(searchQuery = event.value) }
-            is HomeEvent.CategorySelected -> _uiState.update { it.copy(selectedCategory = event.value) }
+            is HomeEvent.CategorySelected -> _uiState.update { it.copy(filter = it.filter.copy(category = event.value)) }
             is HomeEvent.ToggleFavorite -> toggleFavorite(event.eventId)
             is HomeEvent.JoinEvent -> join(event.eventId)
+            is HomeEvent.FilterApplied -> _uiState.update { it.copy(filter = event.criteria) }
             HomeEvent.DismissAddEventTooltip -> viewModelScope.launch { preferences.markAddEventTooltipSeen() }
             HomeEvent.RetryLoadEvents -> viewModelScope.launch { eventRepository.refreshEvents() }
         }

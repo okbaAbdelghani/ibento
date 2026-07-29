@@ -240,7 +240,7 @@ private fun HomeScreen(
                         HomeCategories.forEach { category ->
                             CategoryChip(
                                 label = category,
-                                selected = category == uiState.selectedCategory,
+                                selected = category == uiState.filter.category,
                                 onClick = { onEvent(HomeEvent.CategorySelected(category)) },
                             )
                         }
@@ -250,7 +250,7 @@ private fun HomeScreen(
                 if (uiState.categoryEvents.isEmpty()) {
                     item {
                         EmptyState(
-                            title = "No events in ${uiState.selectedCategory}",
+                            title = "No events in ${uiState.filter.category}",
                             message = "Try a different category.",
                             modifier = Modifier.fillMaxWidth(),
                         )

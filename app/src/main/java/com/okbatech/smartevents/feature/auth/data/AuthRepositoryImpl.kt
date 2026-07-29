@@ -2,6 +2,7 @@ package com.okbatech.smartevents.feature.auth.data
 
 import com.okbatech.smartevents.core.datastore.EvenroPreferences
 import com.okbatech.smartevents.core.network.ApiService
+import com.okbatech.smartevents.core.network.FacebookAuthRequest
 import com.okbatech.smartevents.core.network.GoogleAuthRequest
 import com.okbatech.smartevents.core.network.LoginRequest
 import com.okbatech.smartevents.core.network.RegisterRequest
@@ -62,6 +63,11 @@ class AuthRepositoryImpl @Inject constructor(
 
     override suspend fun signInWithGoogle(idToken: String): Result<User> =
         safeApiCall { api.loginWithGoogle(GoogleAuthRequest(idToken)) }
+            .onSuccess { response -> preferences.setSession(response.user.id, response.token) }
+            .map { it.user.toDomain() }
+
+    override suspend fun signInWithFacebook(accessToken: String): Result<User> =
+        safeApiCall { api.loginWithFacebook(FacebookAuthRequest(accessToken)) }
             .onSuccess { response -> preferences.setSession(response.user.id, response.token) }
             .map { it.user.toDomain() }
 

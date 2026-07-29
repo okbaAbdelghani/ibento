@@ -6,8 +6,9 @@ Kotlin/Jetpack Compose Android client for **Evenro**, an event-discovery/booking
 
 - **Kotlin** + **Jetpack Compose** (Material 3) — UI
 - **Hilt** — dependency injection
-- **Retrofit** + **OkHttp** + **kotlinx.serialization** — networking
-- **Room** — local database (chat, reviews, wishlist, notifications)
+- **Retrofit** + **OkHttp** + **kotlinx.serialization** — REST networking
+- **Smack** — XMPP client for chat, talking directly to the backend's ejabberd server
+- **Room** — local database (chat cache, reviews, wishlist, notifications)
 - **DataStore (Preferences)** — session/auth state, onboarding flags
 - **Coil 3** — image loading
 - **Navigation Compose** — in-app navigation
@@ -54,6 +55,15 @@ private const val BASE_URL = "http://10.0.2.2:4000/api/"
 
 Auth tokens are attached to outgoing requests via `core/network/AuthTokenInterceptor.kt`, sourced from the session stored in `core/datastore/EvenroPreferences.kt` (DataStore).
 
+## Chat (XMPP)
+
+Chat is not a REST feature — `core/xmpp/XmppManager.kt` holds a direct XMPP connection (Smack) to the backend's ejabberd server, separate from the Retrofit/`ApiService` path.
+
+- `core/di/XmppModule.kt` hardcodes the XMPP domain (`evenro.duckdns.org`) and port the same way `NetworkModule.BASE_URL` hardcodes the REST base URL — **update both together** when pointing at a local backend. Unlike `BASE_URL`, the XMPP domain is also used to build JIDs (`<userId>@<domain>`), so testing locally means running ejabberd via the backend's docker-compose stack and pointing the connection's host at `10.0.2.2` (the emulator's alias for the host machine) while keeping the JID domain itself consistent with what ejabberd's `ejabberd.yml` declares — see the backend README's [Chat (XMPP)](../backend/README.md#chat-xmpp) section.
+- `XmppManager` doesn't need to be called from login/logout code — it watches `EvenroPreferences` (current user id + session JWT) directly and connects/disconnects itself, reusing the same JWT the REST API uses. It's started once from `SmartEventsApp.onCreate`.
+- Incoming messages (1:1 or group) are written straight into Room (`MessageDao`) by `XmppManager`, independently of whether a chat screen is open — `ChatRepositoryImpl.observeMessages` just reads Room as before, so the existing chat UI (`feature/social/presentation/*`) didn't need any changes.
+- Outgoing messages: `ChatRepositoryImpl.sendMessage` still does an optimistic local Room insert first, then dispatches over XMPP (`sendDirect` for `dm_*` threads, `sendGroup`, which lazily creates/joins a MUC room, for `event_*` threads).
+
 ## Project structure
 
 ```
@@ -63,9 +73,10 @@ app/src/main/java/com/okbatech/smartevents/
     database/         Room database + DatabaseSeeder
     datastore/         EvenroPreferences (session, onboarding state)
     designsystem/       Shared Compose design system components
-    di/                 Hilt modules (NetworkModule, etc.)
+    di/                 Hilt modules (NetworkModule, XmppModule, etc.)
     navigation/         Navigation Compose graph
     network/            ApiService (Retrofit), DTOs, AuthTokenInterceptor, safeApiCall
+    xmpp/               XmppManager (Smack connection, chat send/receive)
   feature/
     auth/               Sign in/up, verification, reset password, interests, location
     booking/            Buy ticket, payment, tickets, "my events"
@@ -89,7 +100,9 @@ Only some features are backed by the Evenro API — the backend currently expose
 - `feature/events/data/EventRepositoryImpl.kt` — event listing, detail, create/update
 - `feature/booking/data/BookingRepositoryImpl.kt` — bookings
 
-Everything else — **chat, reviews, wishlist, notifications** (`feature/social/data/*`, `feature/events/data/ReviewRepositoryImpl.kt`, `feature/events/data/WishlistRepositoryImpl.kt`) — is backed by the local Room database (seeded via `core/database/DatabaseSeeder.kt`), since the backend has no corresponding routes yet.
+**Chat** (`feature/social/data/ChatRepositoryImpl.kt`) is backed by the backend's ejabberd server over XMPP (see [Chat (XMPP)](#chat-xmpp) above), with Room used only as a local cache/offline store — not by REST, and not local-only either.
+
+Everything else — **reviews, wishlist, notifications** (`feature/events/data/ReviewRepositoryImpl.kt`, `feature/events/data/WishlistRepositoryImpl.kt`, `feature/social/data/NotificationRepositoryImpl.kt`) — is still backed purely by the local Room database (seeded via `core/database/DatabaseSeeder.kt`), since the backend has no corresponding routes yet.
 
 ## API contract
 

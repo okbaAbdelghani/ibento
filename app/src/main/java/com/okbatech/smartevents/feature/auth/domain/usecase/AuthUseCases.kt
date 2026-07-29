@@ -44,6 +44,10 @@ class SignInWithGoogleUseCase @Inject constructor(private val repository: AuthRe
     suspend operator fun invoke(idToken: String): Result<User> = repository.signInWithGoogle(idToken)
 }
 
+class SignInWithFacebookUseCase @Inject constructor(private val repository: AuthRepository) {
+    suspend operator fun invoke(accessToken: String): Result<User> = repository.signInWithFacebook(accessToken)
+}
+
 class VerifyOtpUseCase @Inject constructor(private val repository: AuthRepository) {
     suspend operator fun invoke(code: String): Result<Unit> = repository.verifyOtp(code)
 }

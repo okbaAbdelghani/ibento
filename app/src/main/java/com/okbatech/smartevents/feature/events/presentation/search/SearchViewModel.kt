@@ -8,6 +8,7 @@ import com.okbatech.smartevents.feature.events.domain.model.EventSummary
 import com.okbatech.smartevents.feature.events.domain.repository.EventRepository
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveWishlistedEventIdsUseCase
 import com.okbatech.smartevents.feature.events.domain.usecase.ToggleWishlistUseCase
+import com.okbatech.smartevents.feature.events.presentation.filter.AllCategory
 import com.okbatech.smartevents.feature.events.presentation.filter.FilterCriteria
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -65,7 +66,7 @@ class SearchViewModel @Inject constructor(
 
         combine(eventRepository.observeAllEvents(), _uiState) { events, state ->
             events.filter { event ->
-                (state.filter.categories.isEmpty() || event.category in state.filter.categories) &&
+                (state.filter.category == AllCategory || event.category == state.filter.category) &&
                     (state.query.isBlank() || event.title.contains(state.query, ignoreCase = true)) &&
                     event.priceAmount >= state.filter.minPrice &&
                     event.priceAmount <= state.filter.maxPrice
@@ -77,11 +78,7 @@ class SearchViewModel @Inject constructor(
     fun onEvent(event: SearchEvent) {
         when (event) {
             is SearchEvent.QueryChanged -> _uiState.update { it.copy(query = event.value) }
-            is SearchEvent.CategoryToggled -> _uiState.update {
-                val categories = it.filter.categories
-                val newCategories = if (event.value in categories) categories - event.value else categories + event.value
-                it.copy(filter = it.filter.copy(categories = newCategories))
-            }
+            is SearchEvent.CategoryToggled -> _uiState.update { it.copy(filter = it.filter.copy(category = event.value)) }
             is SearchEvent.FilterApplied -> _uiState.update { it.copy(filter = event.criteria) }
             is SearchEvent.ToggleFavorite -> {
                 val userId = _uiState.value.userId ?: return

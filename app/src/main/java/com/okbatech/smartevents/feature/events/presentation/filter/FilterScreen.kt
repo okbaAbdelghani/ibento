@@ -50,7 +50,7 @@ private fun FilterScreen(
     onApply: (FilterCriteria) -> Unit,
 ) {
     val extended = EvenroTheme.extendedColors
-    var categories by remember { mutableStateOf(initialCriteria.categories) }
+    var category by remember { mutableStateOf(initialCriteria.category) }
     var priceRange by remember { mutableStateOf(initialCriteria.minPrice..initialCriteria.maxPrice) }
 
     Scaffold(
@@ -59,10 +59,7 @@ private fun FilterScreen(
                 EvenroButton(
                     text = "RESET",
                     style = EvenroButtonStyle.Outline,
-                    onClick = {
-                        categories = emptySet()
-                        priceRange = 0f..500f
-                    },
+                    onClick = { onApply(FilterCriteria()) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
@@ -73,7 +70,7 @@ private fun FilterScreen(
                     onClick = {
                         onApply(
                             FilterCriteria(
-                                categories = categories,
+                                category = category,
                                 minPrice = priceRange.start,
                                 maxPrice = priceRange.endInclusive,
                             ),
@@ -110,15 +107,13 @@ private fun FilterScreen(
                 modifier = Modifier.padding(top = 16.dp, bottom = 12.dp),
             )
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SearchCategories.chunked(2).forEach { row ->
+                (listOf(AllCategory) + SearchCategories).chunked(2).forEach { row ->
                     androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        row.forEach { category ->
+                        row.forEach { rowCategory ->
                             CategoryChip(
-                                label = category,
-                                selected = category in categories,
-                                onClick = {
-                                    categories = if (category in categories) categories - category else categories + category
-                                },
+                                label = rowCategory,
+                                selected = rowCategory == category,
+                                onClick = { category = rowCategory },
                             )
                         }
                     }
