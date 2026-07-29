@@ -3,10 +3,12 @@ package com.okbatech.smartevents.feature.home.presentation.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -18,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -26,6 +29,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -82,6 +86,7 @@ fun HomeRoute(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(
     uiState: HomeUiState,
@@ -134,10 +139,16 @@ private fun HomeScreen(
             )
         },
     ) { padding ->
+        // isLoadingEvents doubles as the refresh indicator here — refreshEvents() (triggered by
+        // RetryLoadEvents below) flips it true/false around the same load this screen already
+        // reacts to, so a manual pull and the existing initial-load/retry flow share one flag.
+        PullToRefreshBox(
+            isRefreshing = uiState.isLoadingEvents,
+            onRefresh = { onEvent(HomeEvent.RetryLoadEvents) },
+            modifier = Modifier.padding(padding).fillMaxSize(),
+        ) {
         LazyColumn(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize(),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
@@ -162,20 +173,22 @@ private fun HomeScreen(
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onOpenMessages) {
-                            Icon(Icons.Filled.ChatBubbleOutline, contentDescription = "Messages")
+                        Box {
+                            IconButton(onClick = onOpenMessages) {
+                                Icon(Icons.Filled.ChatBubbleOutline, contentDescription = "Messages")
+                            }
+                            if (uiState.unreadMessagesCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = (-6).dp, y = 6.dp)
+                                        .size(10.dp)
+                                        .background(androidx.compose.ui.graphics.Color(0xFFFF9800), CircleShape),
+                                )
+                            }
                         }
                         IconButton(onClick = onOpenNotifications) {
                             Icon(Icons.Filled.NotificationsNone, contentDescription = "Notifications")
-                        }
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            modifier = Modifier
-                                .padding(start = 4.dp)
-                                .clickable(onClick = onOpenLocationPicker),
-                        ) {
-                            Text("Current location", style = MaterialTheme.typography.bodySmall, color = extended.textSecondary)
-                            Text(uiState.currentCity, style = MaterialTheme.typography.titleSmall)
                         }
                     }
                 }
@@ -273,6 +286,7 @@ private fun HomeScreen(
                     }
                 }
             }
+        }
         }
     }
 }

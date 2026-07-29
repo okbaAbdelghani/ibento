@@ -16,4 +16,5 @@ fun UserDto.toDomain(): User = User(
     country = country,
     followerCount = followerCount,
     followingCount = followingCount,
+    lastSeenAt = lastSeenAt,
 )

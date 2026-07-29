@@ -13,4 +13,5 @@ data class User(
     val country: String? = null,
     val followerCount: Int = 0,
     val followingCount: Int = 0,
+    val lastSeenAt: Long? = null,
 )

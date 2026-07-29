@@ -6,6 +6,8 @@ data class ChatMessage(
     val senderId: String,
     val body: String,
     val sentAt: Long,
+    val deliveredAt: Long? = null,
+    val readAt: Long? = null,
 )
 
 /** Deterministic thread ids so both sides of a conversation land in the same thread. */

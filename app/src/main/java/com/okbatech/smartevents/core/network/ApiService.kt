@@ -60,4 +60,19 @@ interface ApiService {
 
     @POST("bookings")
     suspend fun createBooking(@Body request: BookEventRequest): BookingDto
+
+    @POST("devices")
+    suspend fun registerDeviceToken(@Body request: DeviceTokenRequest)
+
+    @POST("push/notify")
+    suspend fun notifyPush(@Body request: PushNotifyRequest)
+
+    @POST("users/me/heartbeat")
+    suspend fun sendHeartbeat()
+
+    @GET("turn/credentials")
+    suspend fun getTurnCredentials(): TurnCredentialsDto
+
+    @POST("calls/notify")
+    suspend fun notifyCall(@Body request: CallNotifyRequest)
 }

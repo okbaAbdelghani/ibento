@@ -23,7 +23,7 @@ import com.okbatech.smartevents.core.database.entity.WishlistEntity
         ReviewEntity::class,
         WishlistEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {

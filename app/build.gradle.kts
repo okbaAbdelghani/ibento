@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.google.services)
 }
 
 android {
@@ -57,6 +58,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
@@ -101,6 +103,11 @@ dependencies {
     implementation(libs.smack.tcp)
     implementation(libs.smack.im)
     implementation(libs.smack.extensions)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
+
+    implementation(libs.stream.webrtc.android)
 
     coreLibraryDesugaring(libs.android.desugar.jdk.libs)
 

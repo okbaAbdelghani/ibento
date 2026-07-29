@@ -13,3 +13,20 @@ class SendMessageUseCase @Inject constructor(private val repository: ChatReposit
     suspend operator fun invoke(threadId: String, senderId: String, body: String) =
         repository.sendMessage(threadId, senderId, body)
 }
+
+class ObserveLastMessageUseCase @Inject constructor(private val repository: ChatRepository) {
+    operator fun invoke(threadId: String): Flow<ChatMessage?> = repository.observeLastMessage(threadId)
+}
+
+class ObserveThreadUnreadCountUseCase @Inject constructor(private val repository: ChatRepository) {
+    operator fun invoke(threadId: String, myUserId: String): Flow<Int> =
+        repository.observeThreadUnreadCount(threadId, myUserId)
+}
+
+class ObserveTotalUnreadCountUseCase @Inject constructor(private val repository: ChatRepository) {
+    operator fun invoke(myUserId: String): Flow<Int> = repository.observeTotalUnreadCount(myUserId)
+}
+
+class MarkThreadSeenUseCase @Inject constructor(private val repository: ChatRepository) {
+    suspend operator fun invoke(threadId: String, myUserId: String) = repository.markThreadSeen(threadId, myUserId)
+}

@@ -5,10 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -26,21 +29,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
-import com.okbatech.smartevents.feature.auth.domain.model.User
 import com.okbatech.smartevents.feature.social.domain.model.ChatThreads
 import com.okbatech.smartevents.ui.theme.EvenroTheme
 import com.okbatech.smartevents.ui.theme.SmartEventsTheme
+import com.okbatech.smartevents.util.formatBubbleTime
 
 @Composable
 fun MessagesRoute(
     onBack: () -> Unit,
-    onOpenChat: (threadId: String, title: String) -> Unit,
+    onOpenChat: (threadId: String, title: String, otherUserId: String) -> Unit,
     onOpenGroupChat: (eventId: String) -> Unit,
     viewModel: MessagesViewModel = hiltViewModel(),
 ) {
@@ -50,7 +55,7 @@ fun MessagesRoute(
         onSelectTab = viewModel::selectTab,
         onOpenDirectChat = { otherUserId, otherUserName ->
             val me = uiState.currentUserId
-            if (me != null) onOpenChat(ChatThreads.direct(me, otherUserId), otherUserName)
+            if (me != null) onOpenChat(ChatThreads.direct(me, otherUserId), otherUserName, otherUserId)
         },
         onOpenGroupChat = onOpenGroupChat,
         onBack = onBack,
@@ -88,12 +93,15 @@ private fun MessagesScreen(
 
             when (uiState.selectedTab) {
                 MessagesTab.Direct -> {
-                    if (uiState.people.isEmpty()) {
+                    if (uiState.conversations.isEmpty()) {
                         EmptyState("No conversations yet")
                     } else {
                         LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
-                            items(uiState.people, key = { it.id }) { person ->
-                                DirectRow(person = person, onClick = { onOpenDirectChat(person.id, person.name) })
+                            items(uiState.conversations, key = { it.person.id }) { conversation ->
+                                DirectRow(
+                                    conversation = conversation,
+                                    onClick = { onOpenDirectChat(conversation.person.id, conversation.person.name) },
+                                )
                             }
                         }
                     }
@@ -133,8 +141,9 @@ private fun MessagesScreen(
 }
 
 @Composable
-private fun DirectRow(person: User, onClick: () -> Unit) {
+private fun DirectRow(conversation: DirectConversation, onClick: () -> Unit) {
     val extended = EvenroTheme.extendedColors
+    val person = conversation.person
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -148,7 +157,39 @@ private fun DirectRow(person: User, onClick: () -> Unit) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.size(48.dp).clip(CircleShape).background(extended.surfaceMuted),
         )
-        Text(person.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(start = 12.dp))
+        Text(
+            person.name,
+            style = MaterialTheme.typography.titleSmall,
+            modifier = Modifier.padding(start = 12.dp).weight(1f),
+        )
+        Column(horizontalAlignment = Alignment.End) {
+            if (conversation.lastMessageAt != null) {
+                Text(
+                    formatBubbleTime(conversation.lastMessageAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (conversation.unreadCount > 0) Color(0xFFFF9800) else extended.textSecondary,
+                    fontWeight = if (conversation.unreadCount > 0) FontWeight.Bold else FontWeight.Normal,
+                )
+            }
+            if (conversation.unreadCount > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .widthIn(min = 20.dp)
+                        .height(20.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFFF9800)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (conversation.unreadCount > 99) "99+" else conversation.unreadCount.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 6.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

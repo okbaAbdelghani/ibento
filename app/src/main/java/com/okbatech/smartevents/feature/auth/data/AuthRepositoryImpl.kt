@@ -2,6 +2,7 @@ package com.okbatech.smartevents.feature.auth.data
 
 import com.okbatech.smartevents.core.datastore.EvenroPreferences
 import com.okbatech.smartevents.core.network.ApiService
+import com.okbatech.smartevents.core.network.DeviceTokenRequest
 import com.okbatech.smartevents.core.network.FacebookAuthRequest
 import com.okbatech.smartevents.core.network.GoogleAuthRequest
 import com.okbatech.smartevents.core.network.LoginRequest
@@ -106,4 +107,10 @@ class AuthRepositoryImpl @Inject constructor(
     override suspend fun signOut() {
         preferences.setSession(null, null)
     }
+
+    override suspend fun registerDeviceToken(token: String): Result<Unit> =
+        safeApiCall { api.registerDeviceToken(DeviceTokenRequest(token)) }
+
+    override suspend fun sendHeartbeat(): Result<Unit> =
+        safeApiCall { api.sendHeartbeat() }
 }

@@ -63,7 +63,7 @@ fun EventDetailsRoute(
     onBack: () -> Unit,
     onOpenBuyTicket: (String) -> Unit,
     onOpenInvite: (String) -> Unit,
-    onOpenChat: (threadId: String, title: String) -> Unit,
+    onOpenChat: (threadId: String, title: String, otherUserId: String) -> Unit,
     onOpenShare: (eventId: String, title: String) -> Unit,
     onOpenOrganizerProfile: (String) -> Unit,
     viewModel: EventDetailsViewModel = hiltViewModel(),
@@ -88,7 +88,7 @@ private fun EventDetailsScreen(
     onBack: () -> Unit,
     onOpenBuyTicket: () -> Unit,
     onOpenInvite: () -> Unit,
-    onOpenChat: (String, String) -> Unit,
+    onOpenChat: (String, String, String) -> Unit,
     onOpenShare: () -> Unit,
     onOpenOrganizerProfile: (String) -> Unit,
 ) {
@@ -280,7 +280,11 @@ private fun EventDetailsScreen(
                             onClick = {
                                 val me = uiState.userId
                                 if (me != null) {
-                                    onOpenChat(ChatThreads.direct(me, uiState.organizer.id), uiState.organizer.name)
+                                    onOpenChat(
+                                        ChatThreads.direct(me, uiState.organizer.id),
+                                        uiState.organizer.name,
+                                        uiState.organizer.id,
+                                    )
                                 }
                             },
                             containerColor = extended.surfaceMuted,
@@ -348,7 +352,7 @@ private fun EventDetailsScreenPreview() {
             onBack = {},
             onOpenBuyTicket = {},
             onOpenInvite = {},
-            onOpenChat = { _, _ -> },
+            onOpenChat = { _, _, _ -> },
             onOpenShare = {},
             onOpenOrganizerProfile = {},
         )

@@ -12,6 +12,7 @@ import com.okbatech.smartevents.feature.events.presentation.filter.AllCategory
 import com.okbatech.smartevents.feature.events.presentation.filter.FilterCriteria
 import com.okbatech.smartevents.feature.events.presentation.search.SearchCategories
 import com.okbatech.smartevents.feature.events.domain.usecase.ToggleWishlistUseCase
+import com.okbatech.smartevents.feature.social.domain.usecase.ObserveTotalUnreadCountUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,7 @@ data class HomeUiState(
     val showAddEventTooltip: Boolean = false,
     val isLoadingEvents: Boolean = false,
     val eventsErrorMessage: String? = null,
+    val unreadMessagesCount: Int = 0,
 )
 
 sealed interface HomeEvent {
@@ -63,6 +65,7 @@ class HomeViewModel @Inject constructor(
     observeWishlistedEventIds: ObserveWishlistedEventIdsUseCase,
     private val joinEvent: JoinEventUseCase,
     private val preferences: EvenroPreferences,
+    private val observeTotalUnreadCount: ObserveTotalUnreadCountUseCase,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -109,6 +112,11 @@ class HomeViewModel @Inject constructor(
         eventRepository.observeEventsLoadState().onEach { load ->
             _uiState.update { it.copy(isLoadingEvents = load.isLoading, eventsErrorMessage = load.errorMessage) }
         }.launchIn(viewModelScope)
+
+        currentUser.filterNotNull()
+            .flatMapLatest { user -> observeTotalUnreadCount(user.id) }
+            .onEach { count -> _uiState.update { it.copy(unreadMessagesCount = count) } }
+            .launchIn(viewModelScope)
     }
 
     fun onEvent(event: HomeEvent) {

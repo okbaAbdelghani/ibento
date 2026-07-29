@@ -7,7 +7,9 @@ import androidx.navigation.toRoute
 import com.okbatech.smartevents.core.navigation.EvenroRoute
 import com.okbatech.smartevents.feature.auth.domain.usecase.ObserveCurrentUserUseCase
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveEventDetailUseCase
+import com.okbatech.smartevents.feature.social.domain.model.ChatMessage
 import com.okbatech.smartevents.feature.social.domain.model.ChatThreads
+import com.okbatech.smartevents.feature.social.domain.usecase.MarkThreadSeenUseCase
 import com.okbatech.smartevents.feature.social.domain.usecase.ObserveMessagesUseCase
 import com.okbatech.smartevents.feature.social.domain.usecase.SendMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,6 +30,7 @@ class GroupChatViewModel @Inject constructor(
     observeEventDetail: ObserveEventDetailUseCase,
     observeMessages: ObserveMessagesUseCase,
     private val sendMessage: SendMessageUseCase,
+    private val markThreadSeen: MarkThreadSeenUseCase,
 ) : ViewModel() {
 
     val eventId: String = savedStateHandle.toRoute<EvenroRoute.GroupChat>().groupId
@@ -44,8 +47,16 @@ class GroupChatViewModel @Inject constructor(
             _uiState.update { it.copy(title = "${event.title} · Group") }
         }.launchIn(viewModelScope)
 
-        observeMessages(threadId).onEach { messages -> _uiState.update { it.copy(messages = messages) } }
-            .launchIn(viewModelScope)
+        observeMessages(threadId).onEach { messages ->
+            _uiState.update { it.copy(messages = messages) }
+            maybeMarkThreadSeen(messages)
+        }.launchIn(viewModelScope)
+    }
+
+    private fun maybeMarkThreadSeen(messages: List<ChatMessage>) {
+        val myId = _uiState.value.currentUserId ?: return
+        if (messages.none { it.senderId != myId }) return
+        viewModelScope.launch { markThreadSeen(threadId, myId) }
     }
 
     fun onDraftChanged(value: String) {

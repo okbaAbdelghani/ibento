@@ -11,6 +11,7 @@ import com.okbatech.smartevents.feature.auth.domain.usecase.ObserveUserByIdUseCa
 import com.okbatech.smartevents.feature.booking.domain.usecase.ObserveBookingByIdUseCase
 import com.okbatech.smartevents.feature.events.domain.usecase.ObserveEventDetailUseCase
 import com.okbatech.smartevents.feature.social.domain.model.ChatThreads
+import com.okbatech.smartevents.feature.social.domain.usecase.MarkThreadSeenUseCase
 import com.okbatech.smartevents.feature.social.domain.usecase.ObserveMessagesUseCase
 import com.okbatech.smartevents.feature.social.domain.usecase.SendMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -37,6 +38,7 @@ class ChatInBookedDetailsViewModel @Inject constructor(
     observeUserById: ObserveUserByIdUseCase,
     observeMessages: ObserveMessagesUseCase,
     private val sendMessage: SendMessageUseCase,
+    private val markThreadSeen: MarkThreadSeenUseCase,
 ) : ViewModel() {
 
     private val bookingId = savedStateHandle.toRoute<EvenroRoute.ChatInBookedDetails>().bookingId
@@ -60,7 +62,14 @@ class ChatInBookedDetailsViewModel @Inject constructor(
                 threadId = thread
                 observeMessages(thread)
             }
-            .onEach { messages -> _uiState.update { it.copy(messages = messages) } }
+            .onEach { messages ->
+                _uiState.update { it.copy(messages = messages) }
+                val myId = _uiState.value.currentUserId
+                val thread = threadId
+                if (myId != null && thread != null && messages.any { it.senderId != myId }) {
+                    viewModelScope.launch { markThreadSeen(thread, myId) }
+                }
+            }
             .launchIn(viewModelScope)
     }
 

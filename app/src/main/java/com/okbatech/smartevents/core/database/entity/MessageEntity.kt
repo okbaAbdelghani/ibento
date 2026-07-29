@@ -10,5 +10,8 @@ data class MessageEntity(
     val senderId: String,
     val body: String,
     val sentAt: Long,
-    val isRead: Boolean = false,
+    val deliveredAt: Long? = null,
+    val readAt: Long? = null,
+    /** When the local device's user viewed this incoming message — drives the unread badge/count. */
+    val seenAt: Long? = null,
 )

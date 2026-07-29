@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">Smart Events</string>
+    <string name="notification_channel_messages">Messages</string>
+    <string name="notification_channel_calls">Calls</string>
 
     <!-- From developers.facebook.com → your app → Settings → Basic. -->
     <string name="facebook_app_id">TODO_PASTE_FACEBOOK_APP_ID</string>

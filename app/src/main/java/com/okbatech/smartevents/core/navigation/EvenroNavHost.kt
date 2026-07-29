@@ -64,7 +64,28 @@ import com.okbatech.smartevents.feature.social.presentation.messages.MessagesRou
 import com.okbatech.smartevents.feature.social.presentation.notification.NotificationRoute
 
 @Composable
-fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
+fun EvenroNavHost(
+    navController: NavHostController = rememberNavController(),
+    pendingChatDeepLink: PendingChatDeepLink? = null,
+) {
+    if (pendingChatDeepLink != null) {
+        val deepLinkViewModel: DeepLinkViewModel = hiltViewModel()
+        LaunchedEffect(pendingChatDeepLink) {
+            val (threadId, title) = pendingChatDeepLink
+            when {
+                threadId.startsWith("event_") -> {
+                    navController.navigate(EvenroRoute.GroupChat(threadId.removePrefix("event_")))
+                }
+                threadId.startsWith("dm_") -> {
+                    val me = deepLinkViewModel.currentUserId() ?: return@LaunchedEffect
+                    val otherUserId = threadId.removePrefix("dm_").split("_").firstOrNull { it != me }
+                        ?: return@LaunchedEffect
+                    navController.navigate(EvenroRoute.Chat(threadId, title, otherUserId))
+                }
+            }
+        }
+    }
+
     NavHost(navController = navController, startDestination = EvenroRoute.Splash) {
 
         // ---- Onboarding & auth: real implementations (Phase 1) ----
@@ -312,7 +333,7 @@ fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = navController::popBackStack,
                 onOpenBuyTicket = { eventId -> navController.navigate(EvenroRoute.BuyTicket(eventId)) },
                 onOpenInvite = { eventId -> navController.navigate(EvenroRoute.InviteFriendV1(eventId)) },
-                onOpenChat = { threadId, title -> navController.navigate(EvenroRoute.Chat(threadId, title)) },
+                onOpenChat = { threadId, title, otherUserId -> navController.navigate(EvenroRoute.Chat(threadId, title, otherUserId)) },
                 onOpenShare = { eventId, title -> navController.navigate(EvenroRoute.Share(eventTitle = title, eventId = eventId)) },
                 onOpenOrganizerProfile = { organizerId -> navController.navigate(EvenroRoute.OrganizerProfile(userId = organizerId)) },
             )
@@ -322,7 +343,7 @@ fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
                 onBack = navController::popBackStack,
                 onOpenBuyTicket = { eventId -> navController.navigate(EvenroRoute.BuyTicket(eventId)) },
                 onOpenInvite = { eventId -> navController.navigate(EvenroRoute.InviteFriendV1(eventId)) },
-                onOpenChat = { threadId, title -> navController.navigate(EvenroRoute.Chat(threadId, title)) },
+                onOpenChat = { threadId, title, otherUserId -> navController.navigate(EvenroRoute.Chat(threadId, title, otherUserId)) },
                 onOpenShare = { eventId, title -> navController.navigate(EvenroRoute.Share(eventTitle = title, eventId = eventId)) },
                 onOpenOrganizerProfile = { organizerId -> navController.navigate(EvenroRoute.OrganizerProfile(userId = organizerId)) },
             )
@@ -457,7 +478,7 @@ fun EvenroNavHost(navController: NavHostController = rememberNavController()) {
         composable<EvenroRoute.Message> {
             MessagesRoute(
                 onBack = navController::popBackStack,
-                onOpenChat = { threadId, title -> navController.navigate(EvenroRoute.Chat(threadId, title)) },
+                onOpenChat = { threadId, title, otherUserId -> navController.navigate(EvenroRoute.Chat(threadId, title, otherUserId)) },
                 onOpenGroupChat = { eventId -> navController.navigate(EvenroRoute.GroupChat(eventId)) },
             )
         }

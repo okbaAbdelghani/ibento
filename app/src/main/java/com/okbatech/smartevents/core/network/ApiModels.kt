@@ -16,6 +16,7 @@ data class UserDto(
     val country: String? = null,
     val followerCount: Int = 0,
     val followingCount: Int = 0,
+    val lastSeenAt: Long? = null,
 )
 
 @Serializable
@@ -94,3 +95,15 @@ data class BookEventRequest(val eventId: String, val ticketCount: Int)
 
 @Serializable
 data class ApiErrorBody(val message: String? = null)
+
+@Serializable
+data class DeviceTokenRequest(val token: String, val platform: String = "android")
+
+@Serializable
+data class PushNotifyRequest(val threadId: String, val body: String, val messageId: String, val sentAt: Long)
+
+@Serializable
+data class TurnCredentialsDto(val username: String, val credential: String, val ttl: Int, val urls: List<String>)
+
+@Serializable
+data class CallNotifyRequest(val calleeId: String, val callId: String, val video: Boolean, val event: String)

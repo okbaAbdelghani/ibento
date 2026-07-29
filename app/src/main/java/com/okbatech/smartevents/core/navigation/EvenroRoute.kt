@@ -66,7 +66,7 @@ sealed interface EvenroRoute {
     @Serializable data object Notification : EvenroRoute
     @Serializable data object EmptyNotification : EvenroRoute
     @Serializable data object Message : EvenroRoute
-    @Serializable data class Chat(val threadId: String, val title: String) : EvenroRoute
+    @Serializable data class Chat(val threadId: String, val title: String, val otherUserId: String) : EvenroRoute
     @Serializable data class ChatInBookedDetails(val bookingId: String) : EvenroRoute
     @Serializable data class GroupChat(val groupId: String) : EvenroRoute
     @Serializable data class GroupDetails(val groupId: String) : EvenroRoute

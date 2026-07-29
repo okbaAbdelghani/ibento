@@ -27,4 +27,7 @@ interface AuthRepository {
     suspend fun saveLocation(city: String, country: String): Result<Unit>
     suspend fun updateProfile(name: String, phone: String?, bio: String?, avatarUrl: String?): Result<Unit>
     suspend fun signOut()
+
+    suspend fun registerDeviceToken(token: String): Result<Unit>
+    suspend fun sendHeartbeat(): Result<Unit>
 }
