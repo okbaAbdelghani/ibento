@@ -5,11 +5,15 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.okbatech.smartevents.feature.call.presentation.CallActivity
 
 private const val NOTIFICATION_ID = 42001
@@ -35,13 +39,22 @@ class CallForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_RINGING -> startRinging(intent)
-            ACTION_ACTIVE -> startActive(intent)
-            ACTION_STOP -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+        try {
+            FirebaseCrashlytics.getInstance().log("CallForegroundService action=${intent?.action}")
+            when (intent?.action) {
+                ACTION_RINGING -> startRinging(intent)
+                ACTION_ACTIVE -> startActive(intent)
+                ACTION_STOP -> {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
             }
+        } catch (t: Throwable) {
+            // Previously crashed the whole process here (missing-permission SecurityException on
+            // startForeground) — that path is fixed, but keep this net + report so any future
+            // regression surfaces as a Crashlytics non-fatal instead of a silent process death.
+            Log.e("CallForegroundService", "onStartCommand threw", t)
+            FirebaseCrashlytics.getInstance().recordException(t)
         }
         return START_NOT_STICKY
     }
@@ -110,15 +123,29 @@ class CallForegroundService : Service() {
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA,
-            )
+            // Requesting a type this device hasn't actually granted the underlying runtime
+            // permission for throws a SecurityException that kills the whole process (hit this
+            // live: an incoming call's ringing notification crashed because RECORD_AUDIO isn't
+            // requested until CallActivity opens — too late, since this service has to start
+            // first to raise that UI). Build the type mask from what's actually granted instead
+            // of assuming both are — a call still needs to ring/notify even if the user hasn't
+            // (yet, or ever) granted mic/camera; CallManager surfaces the real failure once it
+            // tries to open the mic and hits the same missing permission.
+            var type = 0
+            if (hasPermission(android.Manifest.permission.RECORD_AUDIO)) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            if (hasPermission(android.Manifest.permission.CAMERA)) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            }
+            startForeground(NOTIFICATION_ID, notification, type)
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
     }
+
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
     companion object {
         fun ring(context: Context, callId: String, otherUserId: String, otherName: String, video: Boolean) {

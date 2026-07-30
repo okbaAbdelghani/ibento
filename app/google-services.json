@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "1049245255002",
+    "project_id": "smacklink-3e71a",
+    "storage_bucket": "smacklink-3e71a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1049245255002:android:197f9fbae3d5d587059f63",
+        "android_client_info": {
+          "package_name": "com.okbatech.finralink"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBif8r70BxKBHEol9VvBzRyo505Ui9CpQs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1049245255002:android:877f4e2158e01e05059f63",
+        "android_client_info": {
+          "package_name": "com.okbatech.smartevents"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBif8r70BxKBHEol9VvBzRyo505Ui9CpQs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

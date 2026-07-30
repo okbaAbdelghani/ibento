@@ -21,6 +21,13 @@ class MainActivity : ComponentActivity() {
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
+    // Requested proactively (not just-in-time when a call arrives) so RECORD_AUDIO/CAMERA are
+    // already granted by the time a call comes in — a foreground service can't legally start
+    // with the "microphone"/"camera" type without the underlying permission already granted,
+    // and by then it's too late to ask (that's what was raising the incoming-call notification).
+    private val requestCallPermissions =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -28,6 +35,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             requestNotificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+        requestCallPermissions.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA))
 
         setContent {
             SmartEventsTheme {

@@ -1,10 +1,12 @@
 package com.okbatech.smartevents.core.webrtc
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ProcessLifecycleOwner
+import com.okbatech.smartevents.core.crash.CrashReporter
 import com.okbatech.smartevents.core.di.IoDispatcher
 import com.okbatech.smartevents.core.network.ApiService
 import com.okbatech.smartevents.core.network.CallNotifyRequest
@@ -76,6 +78,7 @@ class CallManager @Inject constructor(
     private val apiService: ApiService,
     private val peerConnectionFactory: PeerConnectionFactory,
     private val eglBase: EglBase,
+    private val crashReporter: CrashReporter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -94,7 +97,11 @@ class CallManager @Inject constructor(
     private var localVideoTrackRef: VideoTrack? = null
     private var videoCapturer: CameraVideoCapturer? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
-    private val pendingRemoteCandidates = mutableListOf<IceCandidate>()
+    // Keyed by callId: WebRTC's trickle ICE means candidates can legitimately arrive before the
+    // offer/answer that establishes call state for them (confirmed live) — buffering only once
+    // a call is already known would silently drop those. Bounded implicitly by cleanupConnection
+    // clearing it on every call end.
+    private val pendingRemoteCandidates = mutableListOf<Pair<String, IceCandidate>>()
 
     private var ringTimeoutJob: Job? = null
     private var offerRetryJob: Job? = null
@@ -109,7 +116,12 @@ class CallManager @Inject constructor(
 
     fun start(appScope: CoroutineScope) {
         xmppManager.incomingCallSignals
-            .onEach { signal -> handleSignal(signal) }
+            .onEach { signal ->
+                runCatching { handleSignal(signal) }.onFailure {
+                    Log.e(TAG, "handleSignal threw", it)
+                    crashReporter.recordException(it, "handleSignal threw for $signal")
+                }
+            }
             .launchIn(appScope)
     }
 
@@ -121,6 +133,7 @@ class CallManager @Inject constructor(
             return
         }
         val callId = "call-${UUID.randomUUID()}"
+        crashReporter.log("startCall $callId to $otherUserId video=$video")
         _callState.value = CallState.Outgoing(callId, otherUserId, video, System.currentTimeMillis())
 
         scope.launch {
@@ -150,6 +163,7 @@ class CallManager @Inject constructor(
                 }
             }.onFailure {
                 Log.e(TAG, "startCall failed", it)
+                crashReporter.recordException(it, "startCall $callId to $otherUserId failed")
                 cleanupConnection()
                 _callState.value = CallState.Ended(callId, CallEndReason.ERROR)
             }
@@ -190,6 +204,7 @@ class CallManager @Inject constructor(
     }
 
     private fun proceedAccept(callId: String, callerId: String, video: Boolean, offerSdp: String) {
+        crashReporter.log("proceedAccept $callId from $callerId video=$video")
         _callState.value = CallState.Connecting(callId, callerId, video)
         scope.launch {
             runCatching {
@@ -198,13 +213,14 @@ class CallManager @Inject constructor(
                 addLocalTracksToConnection(pc)
 
                 pc.setRemoteDescriptionSuspend(SessionDescription(SessionDescription.Type.OFFER, offerSdp))
-                flushPendingCandidates(pc)
+                flushPendingCandidates(pc, callId)
 
                 val answer = pc.createAnswerSuspend(mediaConstraints(video))
                 pc.setLocalDescriptionSuspend(answer)
                 xmppManager.sendCallAnswer(callerId, callId, answer.description)
             }.onFailure {
                 Log.e(TAG, "acceptCall failed", it)
+                crashReporter.recordException(it, "acceptCall $callId from $callerId failed")
                 cleanupConnection()
                 _callState.value = CallState.Ended(callId, CallEndReason.ERROR)
             }
@@ -278,9 +294,23 @@ class CallManager @Inject constructor(
                 }
                 // else: a retried offer for a call we're already tracking — no-op.
             }
+            currentCallId() == signal.callId -> {
+                // A retried offer for a call we've already progressed past Incoming (e.g.
+                // accept was still setting up — creating the peer connection, opening the
+                // camera — when another 3s retry landed) — confirmed live this was being
+                // misclassified as "busy with a different call" below, which wrongly aborted
+                // an in-progress accept. Same call, nothing to do.
+            }
             current is CallState.Idle -> {
                 _callState.value = CallState.Incoming(signal.callId, signal.fromUserId, signal.video, signal.sdp, System.currentTimeMillis())
                 if (isAppForegrounded()) {
+                    // A full-screen-intent notification is deliberately suppressed by the OS in
+                    // favor of a plain heads-up banner whenever the app is already foregrounded/
+                    // the screen is unlocked (confirmed live: CallForegroundService.ring() posted
+                    // fine, no crash, but never surfaced anything — that's Android's documented
+                    // behavior, not a bug). So when foregrounded, launch CallActivity directly
+                    // instead of depending on the notification to do it.
+                    launchCallActivity(signal.callId, signal.fromUserId, signal.fromUserId, signal.video)
                     CallForegroundService.ring(context, signal.callId, signal.fromUserId, signal.fromUserId, signal.video)
                 }
                 // else: leave raising the UI to onIncomingCallPush (the FCM push sent alongside
@@ -303,21 +333,25 @@ class CallManager @Inject constructor(
             runCatching {
                 val pc = peerConnection ?: return@launch
                 pc.setRemoteDescriptionSuspend(SessionDescription(SessionDescription.Type.ANSWER, signal.sdp))
-                flushPendingCandidates(pc)
+                flushPendingCandidates(pc, outgoing.callId)
             }.onFailure {
                 Log.e(TAG, "applying answer failed", it)
+                crashReporter.recordException(it, "applying answer failed for ${outgoing.callId}")
                 endCall(outgoing.calleeId, outgoing.callId, CallEndReason.ERROR, notifyPeer = true)
             }
         }
     }
 
     private fun handleIceCandidate(signal: CallSignal.IceCandidate) {
-        val (_, activeCallId) = currentPeerAndCallId() ?: return
-        if (activeCallId != signal.callId) return
+        val activeCallId = currentCallId()
+        // A candidate can legitimately arrive before we've processed the offer that would set
+        // activeCallId (trickle ICE races with signaling) — only discard it outright if it's for
+        // some OTHER call we're not tracking at all, not just because we're still Idle.
+        if (activeCallId != null && activeCallId != signal.callId) return
         val candidate = IceCandidate(signal.sdpMid, signal.sdpMLineIndex, signal.candidate)
         val pc = peerConnection
-        if (pc == null) {
-            pendingRemoteCandidates += candidate
+        if (pc == null || activeCallId == null) {
+            pendingRemoteCandidates += signal.callId to candidate
         } else {
             pc.addIceCandidate(candidate)
         }
@@ -347,6 +381,7 @@ class CallManager @Inject constructor(
 
             override fun onIceConnectionChange(newState: PeerConnection.IceConnectionState) {
                 Log.d(TAG, "ICE connection state: $newState")
+                crashReporter.log("ICE connection state ($callId): $newState")
                 when (newState) {
                     PeerConnection.IceConnectionState.CONNECTED -> onConnected(otherUserId, callId)
                     PeerConnection.IceConnectionState.FAILED, PeerConnection.IceConnectionState.DISCONNECTED -> {
@@ -405,6 +440,7 @@ class CallManager @Inject constructor(
             }
         }.getOrElse {
             Log.e(TAG, "fetchIceServers: TURN credentials failed, falling back to STUN only", it)
+            crashReporter.recordException(it, "fetchIceServers: TURN credentials failed, falling back to STUN only")
             emptyList()
         }
         return listOf(stun) + turn
@@ -441,9 +477,11 @@ class CallManager @Inject constructor(
         localVideoTrackRef?.let { pc.addTrack(it, listOf(STREAM_ID)) }
     }
 
-    private fun flushPendingCandidates(pc: PeerConnection) {
-        pendingRemoteCandidates.forEach { pc.addIceCandidate(it) }
+    private fun flushPendingCandidates(pc: PeerConnection, callId: String) {
+        val (matching, rest) = pendingRemoteCandidates.partition { it.first == callId }
+        matching.forEach { pc.addIceCandidate(it.second) }
         pendingRemoteCandidates.clear()
+        pendingRemoteCandidates += rest
     }
 
     private fun endCall(otherUserId: String, callId: String, reason: CallEndReason, notifyPeer: Boolean) {
@@ -506,6 +544,15 @@ class CallManager @Inject constructor(
 
     private fun isAppForegrounded(): Boolean =
         ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+
+    /** Only safe to call when the app is already foregrounded (verified by the caller) — a
+     * background-started Service calling this without going through a full-screen-intent
+     * notification would be blocked by Android's background-activity-launch restrictions. */
+    private fun launchCallActivity(callId: String, otherUserId: String, otherName: String, video: Boolean) {
+        val intent = CallForegroundService.callActivityIntent(context, callId, otherUserId, otherName, video, isIncoming = true)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
 
     private fun mediaConstraints(video: Boolean): MediaConstraints = MediaConstraints().apply {
         mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "true"))

@@ -1,6 +1,7 @@
 package com.okbatech.smartevents.core.xmpp
 
 import android.util.Log
+import com.okbatech.smartevents.core.crash.CrashReporter
 import com.okbatech.smartevents.core.database.dao.MessageDao
 import com.okbatech.smartevents.core.database.entity.MessageEntity
 import com.okbatech.smartevents.core.datastore.EvenroPreferences
@@ -55,6 +56,12 @@ private const val TYPING_TIMEOUT_MS = 5_000L
 private const val CALL_ELEMENT = "call"
 private const val CALL_NAMESPACE = "evenro:call"
 
+/** Smack's ChatManager silently drops a body-less incoming message before it ever reaches
+ * addIncomingListener (see sendCallElement/sendReadMarker) — every extension-only stanza needs
+ * a placeholder body to actually arrive. Never surfaced to the user: handled and returned from
+ * before persistIncoming would treat it as a real chat message body. */
+private const val EXTENSION_ONLY_BODY = "[evenro-signal]"
+
 /**
  * Owns the app's single XMPP connection (Smack). Reactively watches [EvenroPreferences] for
  * the signed-in user/session JWT and connects/disconnects to ejabberd accordingly — this
@@ -84,6 +91,7 @@ class XmppManager @Inject constructor(
     private val connection: XMPPTCPConnection,
     private val messageDao: MessageDao,
     private val preferences: EvenroPreferences,
+    private val crashReporter: CrashReporter,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val chatManager: ChatManager = ChatManager.getInstanceFor(connection)
@@ -92,6 +100,14 @@ class XmppManager @Inject constructor(
     private val deliveryReceiptManager: DeliveryReceiptManager = DeliveryReceiptManager.getInstanceFor(connection)
     private val joinedRooms = mutableMapOf<String, MultiUserChat>()
     private val dbScope = CoroutineScope(SupervisorJob() + ioDispatcher)
+
+    // All outgoing stanza sends funnel through this single thread — confirmed live that letting
+    // many coroutines call into Smack concurrently (e.g. CallManager firing one coroutine per
+    // ICE candidate) can wedge Smack's own NIO reactor thread (caught via an ANR: main thread
+    // blocked 48s on a monitor held by "Smack DefaultReactor Thread #1" inside
+    // SelectorImpl.lockAndDoSelect). Smack's connection isn't verified safe for concurrent
+    // sendStanza from multiple threads under load, so don't rely on it being so.
+    private val xmppDispatcher = ioDispatcher.limitedParallelism(1)
     private val typingTimeoutJobs = ConcurrentHashMap<String, Job>()
 
     @Volatile private var currentUserId: String? = null
@@ -168,6 +184,7 @@ class XmppManager @Inject constructor(
 
                 override fun connectionClosedOnError(e: Exception) {
                     Log.e(TAG, "connection closed on error — ReconnectionManager will retry", e)
+                    crashReporter.recordException(e, "XMPP connectionClosedOnError")
                 }
             },
         )
@@ -175,7 +192,7 @@ class XmppManager @Inject constructor(
 
     /** Call once (e.g. from Application.onCreate) to start watching the session and auto (re)connect. */
     fun start(scope: CoroutineScope) {
-        scope.launch(ioDispatcher) {
+        scope.launch(xmppDispatcher) {
             preferences.currentUserId
                 .combine(preferences.sessionToken) { userId, token -> userId to token }
                 .distinctUntilChanged()
@@ -189,13 +206,16 @@ class XmppManager @Inject constructor(
         }
     }
 
-    private suspend fun connectAndLogin(userId: String, jwt: String) = withContext(ioDispatcher) {
+    private suspend fun connectAndLogin(userId: String, jwt: String) = withContext(xmppDispatcher) {
         runCatching {
             currentUserId = userId
             if (!connection.isConnected) connection.connect()
             if (!connection.isAuthenticated) connection.login(userId, jwt)
             Log.d(TAG, "connected+authenticated as $userId")
-        }.onFailure { Log.e(TAG, "connectAndLogin failed for $userId", it) }
+        }.onFailure {
+            Log.e(TAG, "connectAndLogin failed for $userId", it)
+            crashReporter.recordException(it, "connectAndLogin failed for $userId")
+        }
         // Failures are swallowed here deliberately — a flaky handshake shouldn't crash the
         // caller (preferences watcher / login flow). Future work: surface connection state
         // via a Flow<XmppConnectionState> if the UI needs to show "connecting.../offline".
@@ -212,7 +232,7 @@ class XmppManager @Inject constructor(
     }
 
     /** [messageId] must match the local Room row's id — delivery receipts key off the stanza id. */
-    suspend fun sendDirect(toUserId: String, body: String, messageId: String) = withContext(ioDispatcher) {
+    suspend fun sendDirect(toUserId: String, body: String, messageId: String) = withContext(xmppDispatcher) {
         runCatching {
             val jid = JidCreate.entityBareFrom("$toUserId@$XMPP_DOMAIN")
             val message = Message().apply {
@@ -223,7 +243,7 @@ class XmppManager @Inject constructor(
         }.onFailure { Log.e(TAG, "sendDirect to $toUserId failed", it) }
     }
 
-    suspend fun sendGroup(eventId: String, body: String, messageId: String) = withContext(ioDispatcher) {
+    suspend fun sendGroup(eventId: String, body: String, messageId: String) = withContext(xmppDispatcher) {
         runCatching {
             val message = Message().apply {
                 stanzaId = messageId
@@ -235,7 +255,7 @@ class XmppManager @Inject constructor(
     }
 
     /** DM typing indicator (XEP-0085). Debounce/throttle on the caller side (ChatViewModel). */
-    suspend fun sendTypingState(otherUserId: String, isTyping: Boolean) = withContext(ioDispatcher) {
+    suspend fun sendTypingState(otherUserId: String, isTyping: Boolean) = withContext(xmppDispatcher) {
         runCatching {
             val jid = JidCreate.entityBareFrom("$otherUserId@$XMPP_DOMAIN")
             chatStateManager.setCurrentState(
@@ -246,19 +266,25 @@ class XmppManager @Inject constructor(
     }
 
     /** Tells [otherUserId] "I've read everything you sent me up to [upToSentAt]" (a read receipt). */
-    suspend fun sendReadMarker(otherUserId: String, threadId: String, upToSentAt: Long) = withContext(ioDispatcher) {
+    suspend fun sendReadMarker(otherUserId: String, threadId: String, upToSentAt: Long) = withContext(xmppDispatcher) {
         runCatching {
             val jid = JidCreate.entityBareFrom("$otherUserId@$XMPP_DOMAIN")
             val marker = StandardExtensionElement.builder(READ_MARKER_ELEMENT, READ_MARKER_NAMESPACE)
                 .addAttribute("threadId", threadId)
                 .addAttribute("upToMillis", upToSentAt.toString())
                 .build()
-            chatManager.chatWith(jid).send(Message().apply { addExtension(marker) })
+            // Smack's ChatManager only dispatches an incoming stanza to addIncomingListener when
+            // it has a body (or the built-in XHTML-IM extension) — MessageWithBodiesFilter drops
+            // anything else before it ever reaches our listener (confirmed by decompiling
+            // ChatManager's MESSAGE_FILTER; a body-less extension-only message never arrives on
+            // the receiving end at all). The placeholder body is harmless: handleReadMarker's
+            // caller returns before this message would ever be treated as a chat body.
+            chatManager.chatWith(jid).send(Message().apply { setBody(EXTENSION_ONLY_BODY); addExtension(marker) })
         }.onFailure { Log.e(TAG, "sendReadMarker to $otherUserId failed", it) }
     }
 
     suspend fun sendCallOffer(toUserId: String, callId: String, video: Boolean, sdp: String) =
-        withContext(ioDispatcher) {
+        withContext(xmppDispatcher) {
             runCatching {
                 val element = StandardExtensionElement.builder(CALL_ELEMENT, CALL_NAMESPACE)
                     .addAttribute("type", "offer")
@@ -267,10 +293,13 @@ class XmppManager @Inject constructor(
                     .setText(sdp)
                     .build()
                 sendCallElement(toUserId, element)
-            }.onFailure { Log.e(TAG, "sendCallOffer to $toUserId failed", it) }
+            }.onFailure {
+                Log.e(TAG, "sendCallOffer to $toUserId failed", it)
+                crashReporter.recordException(it, "sendCallOffer to $toUserId failed")
+            }
         }
 
-    suspend fun sendCallAnswer(toUserId: String, callId: String, sdp: String) = withContext(ioDispatcher) {
+    suspend fun sendCallAnswer(toUserId: String, callId: String, sdp: String) = withContext(xmppDispatcher) {
         runCatching {
             val element = StandardExtensionElement.builder(CALL_ELEMENT, CALL_NAMESPACE)
                 .addAttribute("type", "answer")
@@ -278,7 +307,10 @@ class XmppManager @Inject constructor(
                 .setText(sdp)
                 .build()
             sendCallElement(toUserId, element)
-        }.onFailure { Log.e(TAG, "sendCallAnswer to $toUserId failed", it) }
+        }.onFailure {
+            Log.e(TAG, "sendCallAnswer to $toUserId failed", it)
+            crashReporter.recordException(it, "sendCallAnswer to $toUserId failed")
+        }
     }
 
     suspend fun sendCallIceCandidate(
@@ -287,7 +319,7 @@ class XmppManager @Inject constructor(
         sdpMid: String,
         sdpMLineIndex: Int,
         candidate: String,
-    ) = withContext(ioDispatcher) {
+    ) = withContext(xmppDispatcher) {
         runCatching {
             val element = StandardExtensionElement.builder(CALL_ELEMENT, CALL_NAMESPACE)
                 .addAttribute("type", "candidate")
@@ -297,10 +329,13 @@ class XmppManager @Inject constructor(
                 .setText(candidate)
                 .build()
             sendCallElement(toUserId, element)
-        }.onFailure { Log.e(TAG, "sendCallIceCandidate to $toUserId failed", it) }
+        }.onFailure {
+            Log.e(TAG, "sendCallIceCandidate to $toUserId failed", it)
+            crashReporter.recordException(it, "sendCallIceCandidate to $toUserId failed")
+        }
     }
 
-    suspend fun sendCallEnd(toUserId: String, callId: String, reason: CallEndReason) = withContext(ioDispatcher) {
+    suspend fun sendCallEnd(toUserId: String, callId: String, reason: CallEndReason) = withContext(xmppDispatcher) {
         runCatching {
             val element = StandardExtensionElement.builder(CALL_ELEMENT, CALL_NAMESPACE)
                 .addAttribute("type", "end")
@@ -308,12 +343,18 @@ class XmppManager @Inject constructor(
                 .addAttribute("reason", reason.name.lowercase())
                 .build()
             sendCallElement(toUserId, element)
-        }.onFailure { Log.e(TAG, "sendCallEnd to $toUserId failed", it) }
+        }.onFailure {
+            Log.e(TAG, "sendCallEnd to $toUserId failed", it)
+            crashReporter.recordException(it, "sendCallEnd to $toUserId failed")
+        }
     }
 
     private fun sendCallElement(toUserId: String, element: StandardExtensionElement) {
         val jid = JidCreate.entityBareFrom("$toUserId@$XMPP_DOMAIN")
-        chatManager.chatWith(jid).send(Message().apply { addExtension(element) })
+        // See the comment on sendReadMarker — same body-less-stanza-gets-dropped issue applies
+        // here, and is far more consequential for calling: a dropped offer just means the phone
+        // never rings, no retry-driven "eventually shows up" fallback like a chat message has.
+        chatManager.chatWith(jid).send(Message().apply { setBody(EXTENSION_ONLY_BODY); addExtension(element) })
     }
 
     private fun handleCallSignal(fromUserId: String, element: StandardExtensionElement) {

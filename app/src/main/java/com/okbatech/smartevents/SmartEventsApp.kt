@@ -4,6 +4,7 @@ import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
+import com.okbatech.smartevents.core.crash.CrashReporter
 import com.okbatech.smartevents.core.database.DatabaseSeeder
 import com.okbatech.smartevents.core.presence.PresenceHeartbeatManager
 import com.okbatech.smartevents.core.push.NOTIFICATION_CHANNEL_MESSAGES
@@ -26,12 +27,16 @@ class SmartEventsApp : Application() {
     @Inject lateinit var pushTokenManager: PushTokenManager
     @Inject lateinit var presenceHeartbeatManager: PresenceHeartbeatManager
     @Inject lateinit var callManager: CallManager
+    @Inject lateinit var crashReporter: CrashReporter
 
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannels()
+        // Started first so a crash during any of the managers below is still attributed to the
+        // right user id.
+        crashReporter.start(applicationScope)
         applicationScope.launch { databaseSeeder.seedIfNeeded() }
         xmppManager.start(applicationScope)
         pushTokenManager.start(applicationScope)
