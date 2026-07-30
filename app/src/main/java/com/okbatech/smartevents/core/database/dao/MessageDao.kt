@@ -9,10 +9,16 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface MessageDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // IGNORE, not REPLACE: the same message id can legitimately be inserted twice — e.g. the FCM
+    // push handler and a later XMPP mod_offline replay both persisting the same stanza after a
+    // reconnect. A REPLACE there overwrites the whole row, silently resetting deliveredAt/readAt/
+    // seenAt back to null on a message the user had already read (confirmed live: this is why the
+    // unread badge kept coming back after opening a thread). Once a row exists, its status columns
+    // only ever change via the dedicated UPDATE queries below.
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(message: MessageEntity)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(messages: List<MessageEntity>)
 
     @Query("SELECT * FROM messages WHERE threadId = :threadId ORDER BY sentAt ASC")

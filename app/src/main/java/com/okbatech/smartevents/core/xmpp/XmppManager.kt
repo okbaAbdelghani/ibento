@@ -56,6 +56,15 @@ private const val TYPING_TIMEOUT_MS = 5_000L
 private const val CALL_ELEMENT = "call"
 private const val CALL_NAMESPACE = "evenro:call"
 
+// ReconnectionManager only reacts to a connection that was already established later dropping —
+// a failure on the very first connect()/login() call (e.g. a TLS handshake timeout right after
+// app launch, confirmed live) isn't its concern at all, and nothing else here would ever retry it
+// since preferences.currentUserId/sessionToken aren't changing. Without this, that one bad first
+// attempt left every XMPP-dependent feature (typing, receipts, calls) silently dead until the
+// user force-closed and reopened the app.
+private const val CONNECT_RETRY_INITIAL_DELAY_MS = 2_000L
+private const val CONNECT_RETRY_MAX_DELAY_MS = 30_000L
+
 /** Smack's ChatManager silently drops a body-less incoming message before it ever reaches
  * addIncomingListener (see sendCallElement/sendReadMarker) — every extension-only stanza needs
  * a placeholder body to actually arrive. Never surfaced to the user: handled and returned from
@@ -109,6 +118,7 @@ class XmppManager @Inject constructor(
     // sendStanza from multiple threads under load, so don't rely on it being so.
     private val xmppDispatcher = ioDispatcher.limitedParallelism(1)
     private val typingTimeoutJobs = ConcurrentHashMap<String, Job>()
+    private var connectRetryJob: Job? = null
 
     @Volatile private var currentUserId: String? = null
 
@@ -197,8 +207,13 @@ class XmppManager @Inject constructor(
                 .combine(preferences.sessionToken) { userId, token -> userId to token }
                 .distinctUntilChanged()
                 .collect { (userId, token) ->
+                    // A new emission means the session itself changed (login/logout/token
+                    // refresh) — any retry loop still spinning for the *previous* one is stale
+                    // and must stop instead of racing this one (or, on logout, continuing to
+                    // hammer connect() for a user who's no longer signed in).
+                    connectRetryJob?.cancel()
                     if (userId != null && token != null) {
-                        connectAndLogin(userId, token)
+                        connectRetryJob = scope.launch(xmppDispatcher) { connectWithRetry(userId, token) }
                     } else {
                         disconnect()
                     }
@@ -206,7 +221,19 @@ class XmppManager @Inject constructor(
         }
     }
 
-    private suspend fun connectAndLogin(userId: String, jwt: String) = withContext(xmppDispatcher) {
+    // Runs as its own job (see start()) rather than inline in the collector above so a still-
+    // retrying attempt can be cancelled independently of — and without blocking — the collector
+    // noticing the *next* preferences change.
+    private suspend fun connectWithRetry(userId: String, jwt: String) {
+        var delayMs = CONNECT_RETRY_INITIAL_DELAY_MS
+        while (true) {
+            if (connectAndLogin(userId, jwt)) return
+            delay(delayMs)
+            delayMs = (delayMs * 2).coerceAtMost(CONNECT_RETRY_MAX_DELAY_MS)
+        }
+    }
+
+    private suspend fun connectAndLogin(userId: String, jwt: String): Boolean = withContext(xmppDispatcher) {
         runCatching {
             currentUserId = userId
             if (!connection.isConnected) connection.connect()
@@ -215,10 +242,7 @@ class XmppManager @Inject constructor(
         }.onFailure {
             Log.e(TAG, "connectAndLogin failed for $userId", it)
             crashReporter.recordException(it, "connectAndLogin failed for $userId")
-        }
-        // Failures are swallowed here deliberately — a flaky handshake shouldn't crash the
-        // caller (preferences watcher / login flow). Future work: surface connection state
-        // via a Flow<XmppConnectionState> if the UI needs to show "connecting.../offline".
+        }.isSuccess
     }
 
     fun disconnect() {

@@ -1,6 +1,12 @@
 package com.okbatech.smartevents.feature.social.presentation.chat
 
 import android.content.Intent
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.size
@@ -164,7 +171,13 @@ fun ChatContent(
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (uiState.messages.isEmpty()) {
+            if (uiState.currentUserId == null) {
+                // Bubble alignment below is "mine" iff senderId == currentUserId — rendering the
+                // list before that first arrives would flag every message (including the user's
+                // own) as not-mine, flashing the whole thread onto the other side for a frame
+                // until it resolves (confirmed live). Room's message Flow can easily emit first.
+                com.okbatech.smartevents.core.designsystem.components.LoadingState(modifier = Modifier.fillMaxSize())
+            } else if (uiState.messages.isEmpty() && !uiState.isPeerTyping) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
                         "Say hello 👋",
@@ -174,6 +187,8 @@ fun ChatContent(
                 }
             } else {
                 val listState = rememberLazyListState()
+                // +1 for the trailing typing-indicator bubble, when shown.
+                val lastItemIndex = uiState.messages.size - 1 + if (uiState.isPeerTyping) 1 else 0
                 // Messages append at the bottom and the input bar sits below the list, so
                 // without this a new message (sent or received) can land past the visible
                 // viewport with no indication it arrived — looks indistinguishable from the
@@ -183,10 +198,11 @@ fun ChatContent(
                 // jump — keying off a single before/after boolean fired the scroll before the
                 // resize had finished, landing at a stale position. Tracking the actual inset
                 // value re-fires on every step of that animation, so the last call (once it
-                // settles) always reflects the final, fully-resized viewport.
+                // settles) always reflects the final, fully-resized viewport. Also re-fires when
+                // the typing bubble itself appears/disappears, so it's never left off-screen.
                 val imeBottomInset = WindowInsets.ime.getBottom(LocalDensity.current)
-                LaunchedEffect(uiState.messages.size, imeBottomInset) {
-                    if (uiState.messages.isNotEmpty()) listState.scrollToItem(uiState.messages.lastIndex)
+                LaunchedEffect(uiState.messages.size, imeBottomInset, uiState.isPeerTyping) {
+                    if (lastItemIndex >= 0) listState.scrollToItem(lastItemIndex)
                 }
                 LazyColumn(
                     state = listState,
@@ -196,6 +212,9 @@ fun ChatContent(
                 ) {
                     items(uiState.messages, key = { it.id }) { message ->
                         MessageBubble(message = message, isMine = message.senderId == uiState.currentUserId)
+                    }
+                    if (uiState.isPeerTyping) {
+                        item(key = "typing-indicator") { TypingIndicatorBubble() }
                     }
                 }
             }
@@ -242,6 +261,44 @@ private fun MessageBubble(message: ChatMessage, isMine: Boolean) {
             }
         }
     }
+}
+
+/** WhatsApp-style "peer is composing" indicator — a received-message-shaped bubble with three
+ * dots bouncing in a staggered wave, appended after the last message while [ChatUiState.isPeerTyping]. */
+@Composable
+private fun TypingIndicatorBubble() {
+    val extended = EvenroTheme.extendedColors
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        Box(
+            modifier = Modifier
+                .background(extended.surfaceMuted, Shapes.medium)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(3) { index -> TypingDot(delayMillis = index * 150, color = extended.textSecondary) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TypingDot(delayMillis: Int, color: androidx.compose.ui.graphics.Color) {
+    val transition = rememberInfiniteTransition(label = "typingDot")
+    val offsetY by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 300, delayMillis = delayMillis, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dotOffset",
+    )
+    Box(
+        modifier = Modifier
+            .offset(y = offsetY.dp)
+            .size(7.dp)
+            .background(color, androidx.compose.foundation.shape.CircleShape),
+    )
 }
 
 @Preview(showBackground = true)

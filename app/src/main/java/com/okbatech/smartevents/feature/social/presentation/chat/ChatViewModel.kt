@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -66,14 +67,23 @@ class ChatViewModel @Inject constructor(
         // EvenroFirebaseMessagingService.
         ActiveChatTracker.openThreadId = route.threadId
 
-        observeCurrentUser().onEach { user -> _uiState.update { it.copy(currentUserId = user?.id) } }
+        // Combined (not two independent collectors) so that currentUserId arriving — which
+        // happens asynchronously and isn't guaranteed to land before the first messages
+        // emission — re-runs the read-marker/seen logic on its own. With two separate onEach
+        // blocks, maybeMarkThreadSeen bailed out (myId null) on that first emission and then
+        // only got another chance whenever the *messages* flow itself re-emitted next — in
+        // practice that was the next message sent in either direction, which is exactly why the
+        // unread bubble only ever cleared once the user replied instead of when they opened the
+        // thread (confirmed live).
+        combine(observeCurrentUser(), observeMessages(route.threadId)) { user, messages -> user to messages }
+            .onEach { (user, messages) ->
+                _uiState.update { it.copy(currentUserId = user?.id, messages = messages) }
+                if (user != null) {
+                    maybeSendReadMarker(messages)
+                    maybeMarkThreadSeen(messages, user.id)
+                }
+            }
             .launchIn(viewModelScope)
-
-        observeMessages(route.threadId).onEach { messages ->
-            _uiState.update { it.copy(messages = messages) }
-            maybeSendReadMarker(messages)
-            maybeMarkThreadSeen(messages)
-        }.launchIn(viewModelScope)
 
         xmppManager.typingByUser.onEach { typingByUser ->
             _uiState.update { it.copy(isPeerTyping = typingByUser[route.otherUserId] == true) }
@@ -129,8 +139,7 @@ class ChatViewModel @Inject constructor(
 
     // Opening the thread is what "reading" the message means locally — clears its unread
     // badge/count regardless of whether the peer ever confirms a read receipt back.
-    private fun maybeMarkThreadSeen(messages: List<ChatMessage>) {
-        val myId = _uiState.value.currentUserId ?: return
+    private fun maybeMarkThreadSeen(messages: List<ChatMessage>, myId: String) {
         if (messages.none { it.senderId != myId }) return
         viewModelScope.launch { markThreadSeen(route.threadId, myId) }
     }

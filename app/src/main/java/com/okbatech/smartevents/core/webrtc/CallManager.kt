@@ -79,6 +79,7 @@ class CallManager @Inject constructor(
     private val peerConnectionFactory: PeerConnectionFactory,
     private val eglBase: EglBase,
     private val crashReporter: CrashReporter,
+    private val callRinger: CallRinger,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + ioDispatcher)
@@ -97,6 +98,10 @@ class CallManager @Inject constructor(
     private var localVideoTrackRef: VideoTrack? = null
     private var videoCapturer: CameraVideoCapturer? = null
     private var surfaceTextureHelper: SurfaceTextureHelper? = null
+    // Guards cleanupConnection() against running its teardown twice concurrently — confirmed
+    // live that a user-initiated hangUp and an ICE-state-driven endCall (onIceConnectionChange)
+    // can race for the same call.
+    private val cleanupLock = Any()
     // Keyed by callId: WebRTC's trickle ICE means candidates can legitimately arrive before the
     // offer/answer that establishes call state for them (confirmed live) — buffering only once
     // a call is already known would silently drop those. Bounded implicitly by cleanupConnection
@@ -123,6 +128,18 @@ class CallManager @Inject constructor(
                 }
             }
             .launchIn(appScope)
+
+        // Ringing is purely a function of callState, not of which entry point raised the call
+        // (direct startCall, an XMPP offer, or an FCM push) — driving it from here keeps every
+        // path in sync for free instead of needing a startRinging()/stop() call threaded through
+        // each one individually.
+        _callState.onEach { state ->
+            when (state) {
+                is CallState.Outgoing -> callRinger.startRingback()
+                is CallState.Incoming -> callRinger.startRinging()
+                else -> callRinger.stop()
+            }
+        }.launchIn(appScope)
     }
 
     // ---- Outgoing ----
@@ -485,39 +502,71 @@ class CallManager @Inject constructor(
     }
 
     private fun endCall(otherUserId: String, callId: String, reason: CallEndReason, notifyPeer: Boolean) {
-        if (notifyPeer) scope.launch { xmppManager.sendCallEnd(otherUserId, callId, reason) }
-        cleanupConnection()
+        // State flips synchronously (cheap) so CallScreen reacts immediately; the actual teardown
+        // below is deferred onto scope's dispatcher — cleanupConnection() ends up blocking on
+        // native WebRTC calls (peerConnection.close(), surfaceTextureHelper.dispose()) that wait
+        // on WebRTC's own signaling/capture threads, and running that synchronously on whichever
+        // thread called endCall() is what deadlocked live: hangUp() (main thread) blocked inside
+        // close(), while the FAILED/DISCONNECTED transition close() itself triggers re-entered
+        // endCall() from onIceConnectionChange on WebRTC's signaling thread — main thread and
+        // signaling thread each waiting on the other. Deferring here, plus the idempotency guard
+        // in cleanupConnection() below, closes both ends of that.
         _callState.value = CallState.Ended(callId, reason)
         CallForegroundService.stop(context)
+        scope.launch {
+            if (notifyPeer) xmppManager.sendCallEnd(otherUserId, callId, reason)
+            cleanupConnection()
+        }
     }
 
     private fun cleanupConnection() {
-        offerRetryJob?.cancel()
-        ringTimeoutJob?.cancel()
-        offerRetryJob = null
-        ringTimeoutJob = null
-        pendingAcceptCallId = null
-        pendingRemoteCandidates.clear()
+        var pc: PeerConnection? = null
+        var capturer: CameraVideoCapturer? = null
+        var helper: SurfaceTextureHelper? = null
+        var localVideo: VideoTrack? = null
+        var localAudio: AudioTrack? = null
 
-        videoCapturer?.let { runCatching { it.stopCapture() } }
-        videoCapturer?.dispose()
-        videoCapturer = null
-        surfaceTextureHelper?.dispose()
-        surfaceTextureHelper = null
+        val hasWork = synchronized(cleanupLock) {
+            // Already torn down by a concurrent caller (e.g. a hangUp racing an ICE-state-driven
+            // endCall for the same call) — nothing left to do.
+            if (peerConnection == null && videoCapturer == null && surfaceTextureHelper == null) {
+                return@synchronized false
+            }
+            offerRetryJob?.cancel()
+            ringTimeoutJob?.cancel()
+            offerRetryJob = null
+            ringTimeoutJob = null
+            pendingAcceptCallId = null
+            pendingRemoteCandidates.clear()
 
-        localVideoTrackRef?.dispose()
-        localVideoTrackRef = null
-        _localVideoTrack.value = null
-        localAudioTrack?.dispose()
-        localAudioTrack = null
-        _remoteVideoTrack.value = null
+            pc = peerConnection
+            peerConnection = null
+            capturer = videoCapturer
+            videoCapturer = null
+            helper = surfaceTextureHelper
+            surfaceTextureHelper = null
+            localVideo = localVideoTrackRef
+            localVideoTrackRef = null
+            localAudio = localAudioTrack
+            localAudioTrack = null
+            _localVideoTrack.value = null
+            _remoteVideoTrack.value = null
 
-        peerConnection?.close()
-        peerConnection?.dispose()
-        peerConnection = null
+            audioManager.mode = AudioManager.MODE_NORMAL
+            audioManager.isSpeakerphoneOn = false
+            true
+        }
+        if (!hasWork) return
 
-        audioManager.mode = AudioManager.MODE_NORMAL
-        audioManager.isSpeakerphoneOn = false
+        // Deliberately outside the lock: these are the slow/blocking native calls, and holding
+        // the lock across them would just relocate the deadlock instead of fixing it.
+        runCatching { capturer?.stopCapture() }
+        capturer?.dispose()
+        helper?.dispose()
+        localVideo?.dispose()
+        localAudio?.dispose()
+        pc?.close()
+        pc?.dispose()
     }
 
     /** Call once the UI has consumed an [CallState.Ended] (e.g. CallActivity finishing) so a

@@ -16,6 +16,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -40,21 +41,23 @@ class GroupChatViewModel @Inject constructor(
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
     init {
-        observeCurrentUser().onEach { user -> _uiState.update { it.copy(currentUserId = user?.id) } }
-            .launchIn(viewModelScope)
-
         observeEventDetail(eventId).filterNotNull().onEach { event ->
             _uiState.update { it.copy(title = "${event.title} · Group") }
         }.launchIn(viewModelScope)
 
-        observeMessages(threadId).onEach { messages ->
-            _uiState.update { it.copy(messages = messages) }
-            maybeMarkThreadSeen(messages)
-        }.launchIn(viewModelScope)
+        // Combined so currentUserId arriving (async, not guaranteed before the first messages
+        // emission) re-runs the seen logic on its own instead of waiting on the next message —
+        // see ChatViewModel's identical fix for why that made the unread bubble only clear once
+        // the user sent a reply.
+        combine(observeCurrentUser(), observeMessages(threadId)) { user, messages -> user to messages }
+            .onEach { (user, messages) ->
+                _uiState.update { it.copy(currentUserId = user?.id, messages = messages) }
+                if (user != null) maybeMarkThreadSeen(messages, user.id)
+            }
+            .launchIn(viewModelScope)
     }
 
-    private fun maybeMarkThreadSeen(messages: List<ChatMessage>) {
-        val myId = _uiState.value.currentUserId ?: return
+    private fun maybeMarkThreadSeen(messages: List<ChatMessage>, myId: String) {
         if (messages.none { it.senderId != myId }) return
         viewModelScope.launch { markThreadSeen(threadId, myId) }
     }

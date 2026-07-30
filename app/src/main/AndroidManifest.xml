@@ -15,6 +15,8 @@
          NotificationManagerCompat.canUseFullScreenIntent() and falls back to a heads-up
          notification when this isn't actually granted. -->
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- Ringtone (incoming) / ringback (outgoing) tone playback — see CallRinger. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".SmartEventsApp"
